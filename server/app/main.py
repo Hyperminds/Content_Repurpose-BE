@@ -1,6 +1,6 @@
 from fastapi import FastAPI #type:ignore
 from fastapi.middleware.cors import CORSMiddleware #cors middleware  #type:ignore
-from conten_repurposer_BE.server.app.routes.content_routes import router #type:ignore
+from app.routes.content_routes import router
 app = FastAPI()
 
 

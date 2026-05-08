@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request #type:ignore
 
-from content_repuposer_BE.server.app.controllers.content_controller import generate_content 
+from app.controllers.content_controller import generate_content 
 
 router = APIRouter()
 

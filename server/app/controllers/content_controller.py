@@ -1,8 +1,8 @@
-from content_repuposer_BE.server.app.services.content_service import (
+from app.services.content_service import (
     generate_text_content
 )
 
-from content_repuposer_BE.server.app.services.image_service import (
+from app.services.image_service import (
     generate_platform_images
 )
 
