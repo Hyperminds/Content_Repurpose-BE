@@ -13,6 +13,7 @@ db = client[DB_NAME]
 # Collections
 bookmarks_collection = db["bookmarks"]
 history_collection = db["history"]
+scheduled_posts_collection = db["scheduled_posts"]
 
 
 async def init_db():
@@ -20,3 +21,6 @@ async def init_db():
     await bookmarks_collection.create_index("platform")
     await bookmarks_collection.create_index("created_at")
     await history_collection.create_index("created_at")
+    await scheduled_posts_collection.create_index("user_id")
+    await scheduled_posts_collection.create_index("status")
+    await scheduled_posts_collection.create_index("scheduled_at")

@@ -260,6 +260,146 @@ Source Content:
     return response.choices[0].message.content
 
 
+# ---------------- MEDIUM ---------------- #
+
+async def generate_medium(source_content, settings, platform_prompts):
+
+    system_prompt = build_system_prompt("medium", settings, platform_prompts)
+    temperature = get_temperature(settings.get("creativity", 7))
+
+    prompt = f"""
+Analyze the source content below.
+
+Generate:
+1 Medium article excerpt (opening section that hooks readers to continue reading).
+
+Requirements:
+- compelling headline
+- strong opening hook (first 2 sentences must grab attention)
+- storytelling approach
+- intellectual depth
+- conversational yet authoritative
+- formatted for readability (short paragraphs, clear flow)
+- end with a thought-provoking question or cliffhanger to encourage reading more
+- Include 3-5 content-specific tags at the end (format: Tags: tag1, tag2, tag3)
+
+Optimize for:
+- read time engagement
+- claps and highlights
+- follower conversion
+
+Source Content:
+{source_content}
+"""
+
+    response = await client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=temperature,
+        max_tokens=600
+    )
+
+    return response.choices[0].message.content
+
+
+# ---------------- META (Facebook) ---------------- #
+
+async def generate_meta(source_content, settings, platform_prompts):
+
+    system_prompt = build_system_prompt("meta", settings, platform_prompts)
+    temperature = get_temperature(settings.get("creativity", 7))
+
+    prompt = f"""
+Analyze the source content below.
+
+Generate:
+1 Facebook post optimized for engagement.
+
+Requirements:
+- conversational and relatable tone
+- designed to spark comments and shares
+- use a question or opinion to drive discussion
+- emotionally resonant
+- mobile-friendly (short paragraphs)
+- include a clear call-to-action (ask a question, invite opinions)
+- 2-4 relevant content-specific hashtags
+
+Optimize for:
+- comments and shares
+- community engagement
+- algorithm reach (early engagement signals)
+
+Avoid:
+- overly promotional language
+- link-heavy posts (algorithm penalizes)
+- generic motivational quotes
+
+Source Content:
+{source_content}
+"""
+
+    response = await client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=temperature,
+        max_tokens=400
+    )
+
+    return response.choices[0].message.content
+
+
+# ---------------- QUORA ---------------- #
+
+async def generate_quora(source_content, settings, platform_prompts):
+
+    system_prompt = build_system_prompt("quora", settings, platform_prompts)
+    temperature = get_temperature(settings.get("creativity", 7))
+
+    prompt = f"""
+Analyze the source content below.
+
+Generate:
+1 Quora answer format: First write a relevant question, then provide a detailed answer.
+
+Requirements:
+- start with a clear, searchable question that the content answers
+- answer in first-person, authoritative but approachable tone
+- provide real value and depth
+- use personal experience framing ("In my experience...", "I've found that...")
+- structure with clear paragraphs
+- end with a concise takeaway or actionable insight
+- no hashtags (Quora doesn't use them)
+- slightly academic but accessible tone
+
+Optimize for:
+- upvotes
+- shares
+- "credibility signals" (specific examples, data points)
+- SEO (Quora answers rank on Google)
+
+Source Content:
+{source_content}
+"""
+
+    response = await client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=temperature,
+        max_tokens=600
+    )
+
+    return response.choices[0].message.content
+
+
 # ---------------- MAIN FUNCTION ---------------- #
 
 async def generate_text_content(source_content, settings=None, platform_prompts=None):
@@ -271,18 +411,24 @@ async def generate_text_content(source_content, settings=None, platform_prompts=
 
     try:
 
-        linkedin, twitter, instagram, reddit = await asyncio.gather(
+        linkedin, twitter, instagram, reddit, medium, meta, quora = await asyncio.gather(
             generate_linkedin(source_content, settings, platform_prompts),
             generate_twitter(source_content, settings, platform_prompts),
             generate_instagram(source_content, settings, platform_prompts),
-            generate_reddit(source_content, settings, platform_prompts)
+            generate_reddit(source_content, settings, platform_prompts),
+            generate_medium(source_content, settings, platform_prompts),
+            generate_meta(source_content, settings, platform_prompts),
+            generate_quora(source_content, settings, platform_prompts),
         )
 
         return {
             "linkedin": linkedin,
             "twitter": twitter,
             "instagram": instagram,
-            "reddit": reddit
+            "reddit": reddit,
+            "medium": medium,
+            "meta": meta,
+            "quora": quora,
         }
 
     except Exception as e:

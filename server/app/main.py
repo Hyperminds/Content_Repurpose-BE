@@ -4,13 +4,17 @@ from fastapi.middleware.cors import CORSMiddleware  # type:ignore
 from app.routes.content_routes import router as content_router
 from app.routes.bookmark_routes import router as bookmark_router
 from app.routes.history_routes import router as history_router
+from app.routes.auth_routes import router as auth_router
+from app.routes.scheduled_post_routes import router as scheduled_post_router
 from app.database import init_db
+from app.models.user_model import init_users_collection
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create indexes
     await init_db()
+    await init_users_collection()
     print("✓ MongoDB connected & indexes created")
     yield
     # Shutdown
@@ -27,9 +31,11 @@ app.add_middleware(
 )
 
 # Routes
+app.include_router(auth_router)
 app.include_router(content_router)
 app.include_router(bookmark_router)
 app.include_router(history_router)
+app.include_router(scheduled_post_router)
 
 
 @app.get("/")
