@@ -1,10 +1,11 @@
 import os
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
 from fastapi import HTTPException, Request
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 JWT_SECRET = os.getenv("JWT_SECRET", "fallback_secret_key")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")

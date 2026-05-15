@@ -1,10 +1,12 @@
 import os
 import asyncio
+from pathlib import Path
 
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from the app directory regardless of working directory
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 client = AsyncOpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"),
