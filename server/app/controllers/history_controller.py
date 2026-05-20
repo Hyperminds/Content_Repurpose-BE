@@ -7,6 +7,7 @@ def serialize_history(doc):
     """Convert MongoDB document to JSON-serializable dict."""
     return {
         "id": str(doc["_id"]),
+        "user_id": doc.get("user_id", ""),
         "input_text": doc.get("input_text"),
         "generated_data": doc.get("generated_data"),
         "images": doc.get("images"),
@@ -15,8 +16,9 @@ def serialize_history(doc):
     }
 
 
-async def add_history_entry(input_text: str, generated_data: dict, images: dict, settings: dict, db=None):
+async def add_history_entry(input_text: str, generated_data: dict, images: dict, settings: dict, user_id: str = None):
     doc = {
+        "user_id": user_id or "",
         "input_text": input_text,
         "generated_data": generated_data,
         "images": images,
@@ -28,8 +30,10 @@ async def add_history_entry(input_text: str, generated_data: dict, images: dict,
     return serialize_history(doc)
 
 
-async def get_history(start_date: str | None, end_date: str | None, limit: int, offset: int, db=None):
+async def get_history(start_date: str | None, end_date: str | None, limit: int, offset: int, user_id: str = None):
     query = {}
+    if user_id:
+        query["user_id"] = user_id
 
     if start_date:
         try:
@@ -50,11 +54,17 @@ async def get_history(start_date: str | None, end_date: str | None, limit: int, 
     return [serialize_history(doc) for doc in docs]
 
 
-async def delete_history_entry(history_id: str, db=None):
-    await history_collection.delete_one({"_id": ObjectId(history_id)})
+async def delete_history_entry(history_id: str, user_id: str = None):
+    query = {"_id": ObjectId(history_id)}
+    if user_id:
+        query["user_id"] = user_id
+    await history_collection.delete_one(query)
     return {"message": "History entry deleted"}
 
 
-async def clear_history(db=None):
-    await history_collection.delete_many({})
+async def clear_history(user_id: str = None):
+    query = {}
+    if user_id:
+        query["user_id"] = user_id
+    await history_collection.delete_many(query)
     return {"message": "All history cleared"}

@@ -4,6 +4,8 @@ from app.controllers.auth_controller import (
     handle_verify_otp,
     handle_resend_otp,
     handle_login,
+    handle_forgot_password,
+    handle_reset_password,
     handle_get_profile,
     handle_get_all_users,
     handle_update_role,
@@ -46,6 +48,22 @@ async def login(data: dict = Body(...)):
         if result.get("needs_verification"):
             status = 403
         raise HTTPException(status_code=status, detail=result["error"])
+    return result
+
+
+@router.post("/forgot-password")
+async def forgot_password(data: dict = Body(...)):
+    result = await handle_forgot_password(data)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.post("/reset-password")
+async def reset_password(data: dict = Body(...)):
+    result = await handle_reset_password(data)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
     return result
 
 

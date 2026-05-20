@@ -1,5 +1,11 @@
+"""
+Content generation service with AI usage tracking.
+Captures token usage from every OpenAI API call.
+"""
+
 import os
 import asyncio
+import time
 from pathlib import Path
 
 from openai import AsyncOpenAI
@@ -14,6 +20,29 @@ client = AsyncOpenAI(
 )
 
 MODEL = "openai/gpt-4o-mini"
+
+# Global token accumulator for the current generation batch
+_current_batch_usage = {}
+
+
+def _reset_batch():
+    global _current_batch_usage
+    _current_batch_usage = {}
+
+
+def _record_usage(platform: str, usage):
+    """Record token usage for a platform call."""
+    if usage:
+        _current_batch_usage[platform] = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+            "completion_tokens": getattr(usage, "completion_tokens", 0),
+            "total_tokens": getattr(usage, "total_tokens", 0),
+        }
+
+
+def get_batch_usage() -> dict:
+    """Get accumulated token usage for the current batch."""
+    return dict(_current_batch_usage)
 
 
 # ---------------- PROMPT BUILDER ---------------- #
@@ -128,6 +157,7 @@ Source Content:
         max_tokens=500
     )
 
+    _record_usage("linkedin", response.usage)
     return response.choices[0].message.content
 
 
@@ -140,22 +170,18 @@ async def generate_twitter(source_content, settings, platform_prompts):
 
     prompt = f"""
 Analyze the source content below.
-Extract the most interesting and shareable insight.
+Extract the single most interesting, shareable insight.
 
-Generate:
-1 viral tweet
-AND
-1 Twitter/X thread (max 5 tweets).
+Generate ONE viral tweet only. No threads. No labels. No prefixes.
 
-Requirements:
-- curiosity-driven hooks
-- punchy writing
-- conversational tone
-- emotionally engaging
-- highly shareable
-- optimized for replies and quote tweets
-- natural flow with short impactful sentences
-- Include 2-4 content-specific hashtags relevant to the actual topic (not generic ones)
+Rules:
+- STRICTLY under 220 characters total (including hashtags and spaces)
+- Curiosity-driven hook that stops the scroll
+- Punchy, conversational, emotionally engaging
+- End with 1-2 relevant hashtags only
+- No filler words, no corporate tone
+- No "TWEET:" label, no numbering, no thread format
+- Output ONLY the tweet text, nothing else
 
 Source Content:
 {source_content}
@@ -168,10 +194,17 @@ Source Content:
             {"role": "user", "content": prompt}
         ],
         temperature=temperature,
-        max_tokens=450
+        max_tokens=100
     )
 
-    return response.choices[0].message.content
+    tweet = response.choices[0].message.content.strip()
+    _record_usage("twitter", response.usage)
+    # Strip any accidental labels the model might add
+    tweet = tweet.replace("TWEET:", "").replace("Tweet:", "").strip()
+    # Hard enforce 220 char limit
+    if len(tweet) > 220:
+        tweet = tweet[:217] + "..."
+    return tweet
 
 
 # ---------------- INSTAGRAM ---------------- #
@@ -214,6 +247,7 @@ Source Content:
         max_tokens=350
     )
 
+    _record_usage("instagram", response.usage)
     return response.choices[0].message.content
 
 
@@ -259,6 +293,7 @@ Source Content:
         max_tokens=700
     )
 
+    _record_usage("reddit", response.usage)
     return response.choices[0].message.content
 
 
@@ -304,6 +339,7 @@ Source Content:
         max_tokens=600
     )
 
+    _record_usage("medium", response.usage)
     return response.choices[0].message.content
 
 
@@ -353,6 +389,7 @@ Source Content:
         max_tokens=400
     )
 
+    _record_usage("meta", response.usage)
     return response.choices[0].message.content
 
 
@@ -399,6 +436,7 @@ Source Content:
         max_tokens=600
     )
 
+    _record_usage("quora", response.usage)
     return response.choices[0].message.content
 
 

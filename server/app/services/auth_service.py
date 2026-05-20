@@ -112,6 +112,62 @@ async def resend_otp(email: str):
     return {"message": "New OTP sent to your email."}
 
 
+async def forgot_password(email: str):
+    """Send OTP for password reset."""
+    user = await users_collection.find_one({"email": email})
+    if not user:
+        # Don't reveal whether email exists
+        return {"message": "If this email is registered, you will receive a reset code."}
+
+    otp_code = generate_otp()
+    otp_expiry = get_otp_expiry()
+
+    # Store reset OTP in a separate collection
+    password_resets_collection = db["password_resets"]
+    await password_resets_collection.update_one(
+        {"email": email},
+        {"$set": {
+            "email": email,
+            "otp_code": otp_code,
+            "otp_expiry": otp_expiry,
+        }},
+        upsert=True,
+    )
+
+    sent = await send_otp_email(email, otp_code, user.get("name", "User"))
+    if not sent:
+        return {"error": "Failed to send reset email. Please try again."}
+
+    return {"message": "If this email is registered, you will receive a reset code."}
+
+
+async def reset_password(email: str, otp_code: str, new_password: str):
+    """Verify OTP and reset the user's password."""
+    password_resets_collection = db["password_resets"]
+
+    reset_record = await password_resets_collection.find_one({"email": email})
+    if not reset_record:
+        return {"error": "No password reset request found. Please request a new one."}
+
+    if reset_record.get("otp_code") != otp_code:
+        return {"error": "Invalid OTP code"}
+
+    if is_otp_expired(reset_record.get("otp_expiry")):
+        return {"error": "OTP has expired. Please request a new one."}
+
+    # Update the user's password
+    new_hash = hash_password(new_password)
+    await users_collection.update_one(
+        {"email": email},
+        {"$set": {"password_hash": new_hash}}
+    )
+
+    # Remove the reset record
+    await password_resets_collection.delete_one({"email": email})
+
+    return {"message": "Password reset successfully. You can now log in with your new password."}
+
+
 async def login_user(email: str, password: str):
     """Authenticate user and return JWT."""
     user = await users_collection.find_one({"email": email})
@@ -180,7 +236,7 @@ async def get_all_users():
 async def update_user_role(user_id: str, new_role: str):
     """Update user role (admin only)."""
     from bson import ObjectId
-    if new_role not in ["member", "super_admin"]:
+    if new_role not in ["member", "admin", "super_admin"]:
         return {"error": "Invalid role"}
     await users_collection.update_one(
         {"_id": ObjectId(user_id)},

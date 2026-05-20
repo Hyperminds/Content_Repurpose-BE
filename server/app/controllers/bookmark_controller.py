@@ -7,6 +7,7 @@ def serialize_bookmark(doc):
     """Convert MongoDB document to JSON-serializable dict."""
     return {
         "id": str(doc["_id"]),
+        "user_id": doc.get("user_id", ""),
         "platform": doc.get("platform"),
         "content": doc.get("content"),
         "input_text": doc.get("input_text", ""),
@@ -16,8 +17,9 @@ def serialize_bookmark(doc):
     }
 
 
-async def create_bookmark(data: dict, db=None):
+async def create_bookmark(data: dict, user_id: str = None):
     doc = {
+        "user_id": user_id or "",
         "platform": data.get("platform"),
         "content": data.get("content"),
         "input_text": data.get("input_text", ""),
@@ -30,8 +32,10 @@ async def create_bookmark(data: dict, db=None):
     return serialize_bookmark(doc)
 
 
-async def get_bookmarks(platform: str | None, db=None):
+async def get_bookmarks(platform: str | None, user_id: str = None):
     query = {}
+    if user_id:
+        query["user_id"] = user_id
     if platform:
         query["platform"] = platform
 
@@ -40,6 +44,9 @@ async def get_bookmarks(platform: str | None, db=None):
     return [serialize_bookmark(doc) for doc in docs]
 
 
-async def delete_bookmark(bookmark_id: str, db=None):
-    await bookmarks_collection.delete_one({"_id": ObjectId(bookmark_id)})
+async def delete_bookmark(bookmark_id: str, user_id: str = None):
+    query = {"_id": ObjectId(bookmark_id)}
+    if user_id:
+        query["user_id"] = user_id
+    await bookmarks_collection.delete_one(query)
     return {"message": "Bookmark deleted"}

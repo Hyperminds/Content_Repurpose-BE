@@ -3,6 +3,8 @@ from app.services.auth_service import (
     verify_otp,
     resend_otp,
     login_user,
+    forgot_password,
+    reset_password,
     get_user_profile,
     get_all_users,
     update_user_role,
@@ -48,6 +50,26 @@ async def handle_login(data: dict):
         return {"error": "Email and password are required"}
 
     return await login_user(email, password)
+
+
+async def handle_forgot_password(data: dict):
+    email = data.get("email", "").strip().lower()
+    if not email:
+        return {"error": "Email is required"}
+    return await forgot_password(email)
+
+
+async def handle_reset_password(data: dict):
+    email = data.get("email", "").strip().lower()
+    otp_code = data.get("otp", "").strip()
+    new_password = data.get("new_password", "")
+
+    if not email or not otp_code or not new_password:
+        return {"error": "Email, OTP, and new password are required"}
+    if len(new_password) < 6:
+        return {"error": "Password must be at least 6 characters"}
+
+    return await reset_password(email, otp_code, new_password)
 
 
 async def handle_get_profile(user: dict):

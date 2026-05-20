@@ -25,3 +25,12 @@ async def init_db():
     await scheduled_posts_collection.create_index("user_id")
     await scheduled_posts_collection.create_index("status")
     await scheduled_posts_collection.create_index("scheduled_at")
+
+    # Publishing system indexes
+    post_history = db["post_history"]
+    await post_history.create_index("user_id")
+    await post_history.create_index("platform")
+    await post_history.create_index("status")
+    await post_history.create_index("unique_post_id", unique=True)
+    await post_history.create_index([("status", 1), ("scheduled_at", 1)])
+    await post_history.create_index("created_at")
