@@ -236,7 +236,7 @@ async def get_all_users():
 async def update_user_role(user_id: str, new_role: str):
     """Update user role (admin only)."""
     from bson import ObjectId
-    if new_role not in ["member", "admin", "super_admin"]:
+    if new_role not in ["member", "super_admin"]:
         return {"error": "Invalid role"}
     await users_collection.update_one(
         {"_id": ObjectId(user_id)},
