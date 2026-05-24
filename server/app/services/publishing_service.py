@@ -22,12 +22,18 @@ connected_platforms_collection = db["connected_platforms"]
 # ============ UNIQUE POST ID GENERATION ============ #
 
 async def generate_unique_post_id(platform: str) -> str:
-    """Generate a unique post ID like REP-LINK-0001."""
+    """Generate a guaranteed unique post ID like REP-LINK-A3F2."""
+    import random, string
     prefix = PLATFORM_PREFIXES.get(platform, "UNK")
-    # Count existing posts for this platform to generate sequential ID
-    count = await post_history_collection.count_documents({"platform": platform})
-    seq = count + 1
-    return f"REP-{prefix}-{seq:04d}"
+    # Use timestamp millis + random suffix — collision-proof
+    ts = int(datetime.now(timezone.utc).timestamp() * 1000) % 100000
+    rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    candidate = f"REP-{prefix}-{ts:05d}-{rand}"
+    # Ensure uniqueness in DB (extremely unlikely to collide but safe)
+    while await post_history_collection.count_documents({"unique_post_id": candidate}) > 0:
+        rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+        candidate = f"REP-{prefix}-{ts:05d}-{rand}"
+    return candidate
 
 
 # ============ POST HISTORY CRUD ============ #

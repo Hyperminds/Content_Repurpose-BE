@@ -19,7 +19,7 @@ client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
 )
 
-MODEL = "openai/gpt-4o-mini"
+MODEL = "openrouter/free"
 
 # Global token accumulator for the current generation batch
 _current_batch_usage = {}
@@ -449,8 +449,8 @@ async def generate_text_content(source_content, settings=None, platform_prompts=
     if platform_prompts is None:
         platform_prompts = {}
 
+    # Generate all platforms in parallel
     try:
-
         linkedin, twitter, instagram, reddit, medium, meta, quora = await asyncio.gather(
             generate_linkedin(source_content, settings, platform_prompts),
             generate_twitter(source_content, settings, platform_prompts),

@@ -18,7 +18,8 @@ from app.routes.ai_usage_routes import router as ai_usage_router
 from app.routes.upload_routes import router as upload_router
 from app.routes.campaign_routes import router as campaign_router
 from app.routes.super_admin_routes import router as super_admin_router
-from app.routes.super_admin_routes import router as super_admin_router
+from app.routes.social_presence_routes import router as social_presence_router
+from app.routes.trend_routes import router as trend_router
 from app.database import init_db
 from app.models.user_model import init_users_collection
 from app.services.scheduler_worker import start_scheduler, stop_scheduler
@@ -65,7 +66,8 @@ app.include_router(ai_usage_router)
 app.include_router(upload_router)
 app.include_router(campaign_router)
 app.include_router(super_admin_router)
-app.include_router(super_admin_router)
+app.include_router(social_presence_router)
+app.include_router(trend_router)
 
 
 @app.get("/")

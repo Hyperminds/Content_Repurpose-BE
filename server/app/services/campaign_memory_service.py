@@ -18,7 +18,7 @@ client = AsyncOpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"),
     base_url="https://openrouter.ai/api/v1",
 )
-MODEL = "openai/gpt-4o-mini"
+MODEL = "openrouter/free"
 
 campaign_memory_collection = db["campaign_memory"]
 
