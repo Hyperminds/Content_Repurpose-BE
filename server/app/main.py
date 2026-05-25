@@ -20,21 +20,22 @@ from app.routes.campaign_routes import router as campaign_router
 from app.routes.super_admin_routes import router as super_admin_router
 from app.routes.social_presence_routes import router as social_presence_router
 from app.routes.trend_routes import router as trend_router
+from app.routes.dev_routes import router as dev_router
 from app.database import init_db
 from app.models.user_model import init_users_collection
 from app.services.scheduler_worker import start_scheduler, stop_scheduler
+from app.config import log_env
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create indexes and start scheduler
     await init_db()
     await init_users_collection()
     start_scheduler()
+    log_env()
     print("✓ MongoDB connected & indexes created")
     print("✓ Scheduler worker started")
     yield
-    # Shutdown
     stop_scheduler()
 
 
@@ -68,6 +69,7 @@ app.include_router(campaign_router)
 app.include_router(super_admin_router)
 app.include_router(social_presence_router)
 app.include_router(trend_router)
+app.include_router(dev_router)
 
 
 @app.get("/")

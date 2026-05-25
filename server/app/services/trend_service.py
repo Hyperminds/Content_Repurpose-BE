@@ -1,7 +1,7 @@
 """
 Trend Analysis Service
 AI-powered realtime trend discovery engine for social media platforms.
-Uses AI to generate contextual, category-specific trend intelligence.
+In development mode (APP_ENV=development), returns mock trend data without any API calls.
 """
 
 import os
@@ -11,6 +11,8 @@ from pathlib import Path
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from datetime import datetime
+from app.config import USE_MOCK
+from app.mock_data.trends import get_mock_full_trend_analysis
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -239,12 +241,17 @@ Return ONLY valid JSON. No markdown, no extra text.
 async def run_trend_analysis(category: str, platforms: list, search_query: str = None) -> dict:
     """
     Main entry point for trend analysis.
-    Fetches platform trends in parallel, then generates cross-platform insights.
+    In development mode, returns mock data instantly.
+    In production, fetches from AI and real APIs.
     """
     if not platforms:
         platforms = ["twitter", "reddit", "linkedin", "instagram", "medium", "quora"]
 
-    # If search query provided, append to category context
+    # ── DEVELOPMENT MODE ─────────────────────────────────────────────────────
+    if USE_MOCK:
+        return get_mock_full_trend_analysis(category, platforms, search_query)
+
+    # ── PRODUCTION MODE ──────────────────────────────────────────────────────
     effective_category = f"{category} - specifically about: {search_query}" if search_query else category
 
     # Fetch all platform trends in parallel

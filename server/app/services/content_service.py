@@ -1,6 +1,7 @@
 """
 Content generation service with AI usage tracking.
 Captures token usage from every OpenAI API call.
+In development mode (APP_ENV=development), returns mock content without any API calls.
 """
 
 import os
@@ -10,6 +11,8 @@ from pathlib import Path
 
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+from app.config import USE_MOCK
+from app.mock_data.content_generation import get_mock_content
 
 # Load .env from the app directory regardless of working directory
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -449,6 +452,11 @@ async def generate_text_content(source_content, settings=None, platform_prompts=
     if platform_prompts is None:
         platform_prompts = {}
 
+    # ── DEVELOPMENT MODE: return mock content instantly ──────────────────────
+    if USE_MOCK:
+        return get_mock_content(source_content, settings, platform_prompts)
+
+    # ── PRODUCTION MODE: call real AI APIs ───────────────────────────────────
     # Generate all platforms in parallel
     try:
         linkedin, twitter, instagram, reddit, medium, meta, quora = await asyncio.gather(

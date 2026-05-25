@@ -1,6 +1,6 @@
 """
 Social Presence Analyzer Service
-Analyzes connected social media profiles and generates AI-powered recommendations.
+In development mode (APP_ENV=development), returns mock data without any AI calls.
 """
 
 import os
@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+from app.config import USE_MOCK
+from app.mock_data.social_presence import get_mock_full_analysis
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -244,25 +246,21 @@ Return ONLY valid JSON. No markdown, no extra text.
 
 async def run_social_presence_analysis(profiles_data: dict) -> dict:
     """
-    Main entry point. Accepts profile data for multiple platforms,
-    runs analysis in parallel, and returns full report.
-
-    profiles_data: {
-        "linkedin": { "username": "...", "bio": "...", "posts_per_week": 2, ... },
-        "twitter": { ... },
-        ...
-    }
+    Main entry point. In development mode returns mock data instantly.
+    In production, runs full AI analysis in parallel.
     """
     import asyncio
 
     connected_platforms = list(profiles_data.keys())
 
     if not connected_platforms:
-        return {
-            "error": "No platform data provided",
-            "platform_analyses": [],
-            "overall": None,
-        }
+        return {"error": "No platform data provided", "platform_analyses": [], "overall": None}
+
+    # ── DEVELOPMENT MODE ─────────────────────────────────────────────────────
+    if USE_MOCK:
+        return get_mock_full_analysis(profiles_data)
+
+    # ── PRODUCTION MODE ──────────────────────────────────────────────────────
 
     # Run all platform analyses in parallel
     tasks = [
