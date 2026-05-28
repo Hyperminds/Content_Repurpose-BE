@@ -125,26 +125,25 @@ async def generate_linkedin(source_content, settings, platform_prompts):
     temperature = get_temperature(settings.get("creativity", 7))
 
     prompt = f"""
-Analyze the source content below.
-Extract the most valuable insight.
+Analyze the source content below and extract the single most powerful insight.
 
-Generate a LinkedIn post optimized for:
-- authority and trust
-- engagement and profile visits
-- meaningful comments
+Write a LinkedIn post that STOPS the scroll immediately.
 
-Requirements:
-- professional storytelling
-- emotionally intelligent writing
-- natural human tone
-- mobile-friendly formatting (short paragraphs)
-- subtle CTA
-- At the end, include 5-8 content-specific hashtags that are relevant to the actual topic discussed (not generic ones like #content or #post)
+STRUCTURE (follow exactly):
+Line 1: A bold, provocative opening hook — ONE sentence that creates instant curiosity or challenges a common belief. No fluff. No "I want to share..." openers.
+[blank line]
+Lines 2-6: The core insight broken into short, punchy paragraphs. Each paragraph max 2 lines. Use numbered lists or arrows (→) where it adds clarity.
+[blank line]
+Final line: A direct, specific CTA — ask a question that invites real opinions.
+[blank line]
+Hashtags: 5-7 highly specific, trending hashtags relevant to the exact topic (NOT generic like #content #post #linkedin)
 
-Avoid:
-- robotic AI phrasing
-- corporate jargon
-- fake motivation
+REQUIREMENTS:
+- Hook must be the strongest sentence in the post
+- Write like a real person, not a corporate account
+- Short paragraphs — mobile readers skim
+- Emotionally intelligent, not motivational-poster generic
+- No "In today's world..." or "I'm excited to share..." openers ever
 
 Source Content:
 {source_content}
@@ -157,7 +156,7 @@ Source Content:
             {"role": "user", "content": prompt}
         ],
         temperature=temperature,
-        max_tokens=500
+        max_tokens=550
     )
 
     _record_usage("linkedin", response.usage)
@@ -172,19 +171,19 @@ async def generate_twitter(source_content, settings, platform_prompts):
     temperature = get_temperature(settings.get("creativity", 7))
 
     prompt = f"""
-Analyze the source content below.
-Extract the single most interesting, shareable insight.
+Analyze the source content below and extract the single most shareable, provocative insight.
 
-Generate ONE viral tweet only. No threads. No labels. No prefixes.
+Write ONE high-performing tweet. Output ONLY the tweet text — no labels, no quotes, no explanation.
 
-Rules:
-- STRICTLY under 220 characters total (including hashtags and spaces)
-- Curiosity-driven hook that stops the scroll
-- Punchy, conversational, emotionally engaging
-- End with 1-2 relevant hashtags only
-- No filler words, no corporate tone
-- No "TWEET:" label, no numbering, no thread format
-- Output ONLY the tweet text, nothing else
+RULES:
+- Maximum 260 characters total (including hashtags)
+- First 8 words must be a scroll-stopping hook — use curiosity, controversy, or a bold claim
+- Conversational and punchy — sounds like a real person, not a brand
+- End with 3-5 trending, specific hashtags relevant to the exact topic
+- Hashtags must be currently trending or highly searched (e.g. #AIAgents #GPT5 #BuildInPublic #StartupLife)
+- NO generic hashtags like #tech #content #post #socialmedia
+- NO "TWEET:" prefix, no numbering, no thread format
+- If the insight is strong enough, a question format works well
 
 Source Content:
 {source_content}
@@ -197,16 +196,17 @@ Source Content:
             {"role": "user", "content": prompt}
         ],
         temperature=temperature,
-        max_tokens=100
+        max_tokens=150
     )
 
     tweet = response.choices[0].message.content.strip()
     _record_usage("twitter", response.usage)
-    # Strip any accidental labels the model might add
     tweet = tweet.replace("TWEET:", "").replace("Tweet:", "").strip()
-    # Hard enforce 220 char limit
-    if len(tweet) > 220:
-        tweet = tweet[:217] + "..."
+    # Strip surrounding quotes if model adds them
+    if tweet.startswith('"') and tweet.endswith('"'):
+        tweet = tweet[1:-1].strip()
+    if len(tweet) > 280:
+        tweet = tweet[:277] + "..."
     return tweet
 
 
@@ -218,23 +218,24 @@ async def generate_instagram(source_content, settings, platform_prompts):
     temperature = get_temperature(settings.get("creativity", 7))
 
     prompt = f"""
-Analyze the source content below.
+Analyze the source content below and extract the most visually compelling, emotionally resonant angle.
 
-Generate:
-1 Instagram caption.
+Write an Instagram caption that stops the scroll and drives saves.
 
-Requirements:
-- emotionally engaging
-- creator-style tone
-- emoji friendly
-- relatable storytelling
-- CTA at the end
-- Include 15-25 content-specific hashtags at the very end, relevant to the actual topic (mix of high-volume and niche hashtags)
+STRUCTURE:
+Line 1: A powerful hook — one sentence that creates instant curiosity, emotion, or relatability. This is the most important line.
+[blank line]
+Lines 2-5: The story or insight in short, punchy sentences. Max 2 lines per paragraph.
+[blank line]
+CTA: End with a direct, specific question or action that invites engagement.
+[blank line]
+Hashtags: 20-25 hashtags — mix of high-volume (#AI #Entrepreneur) and niche (#AIStartups #ContentCreatorLife). All must be relevant to the actual topic.
 
-Optimize for:
-- saves
-- shares
-- emotional engagement
+REQUIREMENTS:
+- Hook must create an emotional reaction in under 5 seconds
+- Conversational, creator-style voice — not corporate
+- Short paragraphs — Instagram is mobile-first
+- The CTA must be specific, not generic ("Drop a comment" is weak — "Tell me your biggest challenge with X" is strong)
 
 Source Content:
 {source_content}
@@ -247,7 +248,7 @@ Source Content:
             {"role": "user", "content": prompt}
         ],
         temperature=temperature,
-        max_tokens=350
+        max_tokens=400
     )
 
     _record_usage("instagram", response.usage)
@@ -262,25 +263,34 @@ async def generate_reddit(source_content, settings, platform_prompts):
     temperature = get_temperature(settings.get("creativity", 7))
 
     prompt = f"""
-Analyze the source content below.
+Analyze the source content below and extract the most discussion-worthy angle.
 
-Generate:
-1 detailed Reddit post.
+Write a Reddit post that gets upvoted and sparks real conversation.
 
-Requirements:
-- conversational tone
-- honest human writing
-- value-driven
-- authentic discussion style
-- no hashtags (Reddit doesn't use them)
-- no corporate tone
-- slightly imperfect natural writing
-- At the end, suggest 2-3 relevant subreddits where this post would fit well (format: "Best subreddits: r/example, r/example2")
+STRUCTURE:
+Title: Write a compelling, specific title that makes people want to click (max 120 chars). Use curiosity or a strong opinion.
+[blank line]
+Body: 150-250 words maximum. Reddit readers abandon long posts.
 
-Optimize for:
-- trust
-- comments
-- relatability
+BODY REQUIREMENTS:
+- Open with a strong hook — a surprising fact, personal experience, or bold opinion in the first 2 sentences
+- Write like a real Reddit user — casual, honest, slightly imperfect
+- Share a genuine perspective or experience, not a lecture
+- Ask the community a specific question at the end to drive comments
+- NO hashtags (Reddit does not use hashtags)
+- NO corporate tone, NO "I'm excited to share"
+- NO subreddit suggestions — do not mention r/ anything
+
+AVOID:
+- Walls of text
+- Bullet point lists (feels like a blog post, not Reddit)
+- Promotional language
+- Subreddit recommendations
+
+Output format:
+Title: [your title here]
+
+[body text here]
 
 Source Content:
 {source_content}
@@ -293,11 +303,15 @@ Source Content:
             {"role": "user", "content": prompt}
         ],
         temperature=temperature,
-        max_tokens=700
+        max_tokens=400
     )
 
     _record_usage("reddit", response.usage)
-    return response.choices[0].message.content
+    content = response.choices[0].message.content
+    # Strip any subreddit suggestions the model might still add
+    import re
+    content = re.sub(r'(?i)(best subreddits?|posted? (to|in|on)|r/\w+)[^\n]*', '', content).strip()
+    return content
 
 
 # ---------------- MEDIUM ---------------- #
@@ -308,25 +322,26 @@ async def generate_medium(source_content, settings, platform_prompts):
     temperature = get_temperature(settings.get("creativity", 7))
 
     prompt = f"""
-Analyze the source content below.
+Analyze the source content below and extract the most intellectually compelling angle.
 
-Generate:
-1 Medium article excerpt (opening section that hooks readers to continue reading).
+Write the opening section of a Medium article that makes readers unable to stop reading.
 
-Requirements:
-- compelling headline
-- strong opening hook (first 2 sentences must grab attention)
-- storytelling approach
-- intellectual depth
-- conversational yet authoritative
-- formatted for readability (short paragraphs, clear flow)
-- end with a thought-provoking question or cliffhanger to encourage reading more
-- Include 3-5 content-specific tags at the end (format: Tags: tag1, tag2, tag3)
+STRUCTURE:
+Headline: A specific, curiosity-driven title (not clickbait — genuinely interesting)
+[blank line]
+Opening paragraph: 2-3 sentences that immediately challenge a common assumption or open with a surprising fact/story. This is your hook — make it impossible to ignore.
+[blank line]
+Body (2-3 short paragraphs): Develop the core idea with depth and nuance. Use a conversational but authoritative voice. Short paragraphs — Medium readers skim.
+[blank line]
+Cliffhanger: End with a thought-provoking question or statement that makes readers want to continue.
+[blank line]
+Tags: 4-5 specific tags (format: Tags: tag1, tag2, tag3)
 
-Optimize for:
-- read time engagement
-- claps and highlights
-- follower conversion
+REQUIREMENTS:
+- The headline must be specific — "Why Most Developers Ignore the Most Important Skill" beats "The Importance of Skills"
+- Opening hook must challenge something the reader believes or surprise them
+- Intellectual depth without academic jargon
+- No "In this article I will..." openers
 
 Source Content:
 {source_content}
@@ -354,29 +369,24 @@ async def generate_meta(source_content, settings, platform_prompts):
     temperature = get_temperature(settings.get("creativity", 7))
 
     prompt = f"""
-Analyze the source content below.
+Analyze the source content below and extract the most relatable, discussion-worthy angle.
 
-Generate:
-1 Facebook post optimized for engagement.
+Write a Facebook post that sparks genuine conversation.
 
-Requirements:
-- conversational and relatable tone
-- designed to spark comments and shares
-- use a question or opinion to drive discussion
-- emotionally resonant
-- mobile-friendly (short paragraphs)
-- include a clear call-to-action (ask a question, invite opinions)
-- 2-4 relevant content-specific hashtags
+STRUCTURE:
+Line 1: A hook that feels personal — a relatable observation, a bold opinion, or a surprising statement. Must make someone stop scrolling.
+[blank line]
+Lines 2-4: Develop the idea in 2-3 short paragraphs. Conversational, warm, community-focused.
+[blank line]
+Final line: A specific question that invites real responses — not "What do you think?" but something specific to the topic.
+[blank line]
+2-3 relevant hashtags (specific to the topic, not generic)
 
-Optimize for:
-- comments and shares
-- community engagement
-- algorithm reach (early engagement signals)
-
-Avoid:
-- overly promotional language
-- link-heavy posts (algorithm penalizes)
-- generic motivational quotes
+REQUIREMENTS:
+- Feels like a real person sharing a genuine thought, not a brand post
+- Short paragraphs — Facebook is mobile-first
+- The question at the end must be specific enough that people feel compelled to answer
+- No promotional language, no links, no "Check out my..."
 
 Source Content:
 {source_content}
@@ -404,26 +414,26 @@ async def generate_quora(source_content, settings, platform_prompts):
     temperature = get_temperature(settings.get("creativity", 7))
 
     prompt = f"""
-Analyze the source content below.
+Analyze the source content below and extract the most searchable, valuable insight.
 
-Generate:
-1 Quora answer format: First write a relevant question, then provide a detailed answer.
+Write a Quora answer that gets upvoted and ranks on Google.
 
-Requirements:
-- start with a clear, searchable question that the content answers
-- answer in first-person, authoritative but approachable tone
-- provide real value and depth
-- use personal experience framing ("In my experience...", "I've found that...")
-- structure with clear paragraphs
-- end with a concise takeaway or actionable insight
-- no hashtags (Quora doesn't use them)
-- slightly academic but accessible tone
+STRUCTURE:
+Question: Write a specific, searchable question that this content answers (max 100 chars). Should be something people actually Google.
+[blank line]
+Answer opening: Start with a direct, confident answer to the question in 1-2 sentences. Don't build up to the answer — give it immediately.
+[blank line]
+Body (3-4 short paragraphs): Expand with depth, personal experience framing, and specific examples. Use "In my experience..." or "I've found that..." naturally.
+[blank line]
+Takeaway: End with one clear, actionable insight the reader can apply today.
 
-Optimize for:
-- upvotes
-- shares
-- "credibility signals" (specific examples, data points)
-- SEO (Quora answers rank on Google)
+REQUIREMENTS:
+- The opening must answer the question directly — Quora readers hate when answers bury the lead
+- Use first-person authority voice — you are an expert sharing real experience
+- Specific examples and data points increase credibility
+- No hashtags (Quora doesn't use them)
+- No subreddit or platform suggestions
+- 200-350 words total for the answer
 
 Source Content:
 {source_content}
@@ -436,7 +446,7 @@ Source Content:
             {"role": "user", "content": prompt}
         ],
         temperature=temperature,
-        max_tokens=600
+        max_tokens=500
     )
 
     _record_usage("quora", response.usage)
