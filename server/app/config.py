@@ -25,7 +25,12 @@ API_PREFIX: str = ""  # Set to "/api/v1" when ready for versioning
 IS_DEVELOPMENT = APP_ENV == "development"
 IS_STAGING     = APP_ENV == "staging"
 IS_PRODUCTION  = APP_ENV == "production"
-USE_MOCK       = IS_DEVELOPMENT
+
+# USE_MOCK_DATA controls whether AI/trend/social calls use mock data.
+# Decoupled from APP_ENV so you can deploy in "production" mode
+# (real CORS, real auth, real DB) while still saving AI credits.
+# Set USE_MOCK_DATA=true in Render env vars to keep mock AI responses.
+USE_MOCK: bool = os.getenv("USE_MOCK_DATA", "true" if IS_DEVELOPMENT else "false").lower() == "true"
 
 # ── Database ──────────────────────────────────────────────────────────────────
 MONGODB_URL: str = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
@@ -42,7 +47,10 @@ AI_MODEL: str = os.getenv("AI_MODEL", "openrouter/free")
 AI_BASE_URL: str = "https://openrouter.ai/api/v1"
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-CORS_ORIGINS: list = os.getenv("CORS_ORIGINS", "*").split(",")
+# In production set this to your Vercel URL, e.g.:
+# CORS_ORIGINS=https://your-app.vercel.app
+_cors_raw = os.getenv("CORS_ORIGINS", "*")
+CORS_ORIGINS: list = ["*"] if _cors_raw == "*" else [o.strip() for o in _cors_raw.split(",")]
 
 # ── SMTP ──────────────────────────────────────────────────────────────────────
 SMTP_EMAIL: str = os.getenv("SMTP_EMAIL", "")
@@ -63,12 +71,9 @@ def get_env() -> str:
 
 def log_env():
     mode_label = {
-        "development": "🟡 DEVELOPMENT (mock data — no API credits consumed)",
-        "staging":     "🟠 STAGING (partial real APIs)",
-        "production":  "🟢 PRODUCTION (fully real APIs)",
+        "development": "🟡 DEVELOPMENT",
+        "staging":     "🟠 STAGING",
+        "production":  "🟢 PRODUCTION",
     }.get(APP_ENV, f"❓ UNKNOWN ({APP_ENV})")
-    print(f"[{APP_NAME} v{APP_VERSION}] Environment: {mode_label}")
-    if IS_DEVELOPMENT:
-        print(f"[{APP_NAME}] AI Model: {AI_MODEL} (mock mode — not called)")
-    else:
-        print(f"[{APP_NAME}] AI Model: {AI_MODEL}")
+    mock_label = "🎭 MOCK DATA (no AI credits consumed)" if USE_MOCK else "🤖 REAL AI APIs"
+    print(f"[{APP_NAME} v{APP_VERSION}] Environment: {mode_label} | AI: {mock_label}")
