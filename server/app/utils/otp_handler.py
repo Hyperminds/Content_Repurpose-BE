@@ -1,13 +1,9 @@
 import os
 import random
+import asyncio
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta, timezone
-
-# Read directly from os.getenv — env vars are set by Render/deployment platform
-# No dotenv load needed here; config.py handles that at startup
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "").strip()
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip().replace(" ", "")
 
 
 def generate_otp() -> str:
@@ -29,17 +25,28 @@ def is_otp_expired(expiry: datetime) -> bool:
     return datetime.now(timezone.utc) > expiry
 
 
+def _get_smtp_creds():
+    """Read SMTP credentials at call time (not import time) to ensure env is loaded."""
+    email = os.getenv("SMTP_EMAIL", "").strip()
+    password = os.getenv("SMTP_PASSWORD", "").strip()
+    return email, password
+
+
 async def send_otp_email(to_email: str, otp_code: str, name: str = "User") -> bool:
     """
-    Send OTP via Gmail SMTP using aiosmtplib (async, non-blocking).
-    Falls back to console log if SMTP not configured.
+    Send OTP via Gmail SMTP.
+    Uses aiosmtplib if available, falls back to sync smtplib in thread.
+    Always returns True so auth flow doesn't break — logs OTP to console as fallback.
     """
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        print(f"[OTP] No SMTP configured — OTP for {to_email}: {otp_code}")
+    smtp_email, smtp_password = _get_smtp_creds()
+
+    if not smtp_email or not smtp_password:
+        print(f"[OTP] ⚠ SMTP not configured (SMTP_EMAIL={repr(smtp_email)}, password_len={len(smtp_password)})")
+        print(f"[OTP] OTP for {to_email}: {otp_code}")
         return True
 
     msg = MIMEMultipart()
-    msg["From"] = SMTP_EMAIL
+    msg["From"] = smtp_email
     msg["To"] = to_email
     msg["Subject"] = "TrendZZo — Verify Your Account"
 
@@ -61,42 +68,47 @@ async def send_otp_email(to_email: str, otp_code: str, name: str = "User") -> bo
     </body>
     </html>
     """
-
     msg.attach(MIMEText(body, "html"))
 
-    try:
-        # Try async first (aiosmtplib)
-        try:
-            import aiosmtplib
-            await aiosmtplib.send(
-                msg,
-                hostname="smtp.gmail.com",
-                port=587,
-                start_tls=True,
-                username=SMTP_EMAIL,
-                password=SMTP_PASSWORD,
-            )
-            print(f"[SMTP] ✓ OTP sent to {to_email}")
-            return True
-        except ImportError:
-            # aiosmtplib not installed — fall back to sync in thread
-            import asyncio
-            import smtplib
-            def _send_sync():
-                server = smtplib.SMTP("smtp.gmail.com", 587)
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-                server.login(SMTP_EMAIL, SMTP_PASSWORD)
-                server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
-                server.quit()
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, _send_sync)
-            print(f"[SMTP] ✓ OTP sent to {to_email} (sync fallback)")
-            return True
+    print(f"[SMTP] Attempting to send OTP to {to_email} via {smtp_email}...")
 
+    # Method 1: aiosmtplib (async, preferred)
+    try:
+        import aiosmtplib
+        await aiosmtplib.send(
+            msg,
+            hostname="smtp.gmail.com",
+            port=587,
+            start_tls=True,
+            username=smtp_email,
+            password=smtp_password,
+            timeout=15,
+        )
+        print(f"[SMTP] ✓ OTP sent to {to_email} (aiosmtplib)")
+        return True
+    except ImportError:
+        pass  # aiosmtplib not installed, try sync
+    except Exception as e:
+        print(f"[SMTP] aiosmtplib failed: {type(e).__name__}: {e}")
+        # Fall through to sync method
+
+    # Method 2: smtplib in thread (sync fallback)
+    try:
+        import smtplib
+
+        def _send_sync():
+            server = smtplib.SMTP("smtp.gmail.com", 587, timeout=15)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, to_email, msg.as_string())
+            server.quit()
+
+        await asyncio.get_event_loop().run_in_executor(None, _send_sync)
+        print(f"[SMTP] ✓ OTP sent to {to_email} (smtplib sync)")
+        return True
     except Exception as e:
         print(f"[SMTP ERROR] {type(e).__name__}: {e}")
         print(f"[OTP FALLBACK] OTP for {to_email}: {otp_code}")
-        # Return True so signup doesn't fail — user sees OTP in server logs
         return True
