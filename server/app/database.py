@@ -8,7 +8,15 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
 DB_NAME = os.getenv("DB_NAME", "content_repurposer")
 
-client = AsyncIOMotorClient(MONGODB_URL)
+# Atlas-compatible client settings:
+# - serverSelectionTimeoutMS: fail fast if Atlas unreachable (5s)
+# - connectTimeoutMS: max time to establish connection (10s)
+# - tls=True is auto-detected from mongodb+srv:// URI
+client = AsyncIOMotorClient(
+    MONGODB_URL,
+    serverSelectionTimeoutMS=5000,
+    connectTimeoutMS=10000,
+)
 db = client[DB_NAME]
 
 # Collections
@@ -19,6 +27,9 @@ scheduled_posts_collection = db["scheduled_posts"]
 
 async def init_db():
     """Create indexes for better query performance and scalability."""
+    # Verify connection before creating indexes
+    await client.admin.command("ping")
+
     # Bookmarks
     await bookmarks_collection.create_index("user_id")
     await bookmarks_collection.create_index("platform")

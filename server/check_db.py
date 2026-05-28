@@ -2,6 +2,11 @@ import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 import json
 from datetime import datetime
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / "app" / ".env")
 
 
 def serialize(doc):
@@ -13,8 +18,10 @@ def serialize(doc):
 
 
 async def main():
-    client = AsyncIOMotorClient("mongodb://localhost:27017")
-    db = client["content_repurposer"]
+    url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+    db_name = os.getenv("DB_NAME", "content_repurposer")
+    client = AsyncIOMotorClient(url, serverSelectionTimeoutMS=5000)
+    db = client[db_name]
 
     collections = await db.list_collection_names()
     print("=" * 60)

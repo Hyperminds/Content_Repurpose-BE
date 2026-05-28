@@ -3,6 +3,7 @@ Multi-platform OAuth and account management routes.
 Handles: Twitter, Reddit, Medium, Quora connections.
 """
 
+import os
 import httpx
 from fastapi import APIRouter, Query, Depends, HTTPException, Body
 from fastapi.responses import RedirectResponse
@@ -20,7 +21,7 @@ from app.services.platform_connections import (
 
 router = APIRouter(prefix="/platforms", tags=["platform-connections"])
 
-FRONTEND_URL = "http://localhost:5173"
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 
 # ============ GENERIC PLATFORM ROUTES ============ #
