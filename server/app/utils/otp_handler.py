@@ -1,6 +1,13 @@
+"""
+OTP Handler for TrendZZo.
+Sends verification emails via Resend API (HTTPS, works on all hosting platforms).
+Falls back to Gmail SMTP if Resend is not configured.
+"""
+
 import os
 import random
 import asyncio
+import httpx
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta, timezone
@@ -25,32 +32,8 @@ def is_otp_expired(expiry: datetime) -> bool:
     return datetime.now(timezone.utc) > expiry
 
 
-def _get_smtp_creds():
-    """Read SMTP credentials at call time (not import time) to ensure env is loaded."""
-    email = os.getenv("SMTP_EMAIL", "").strip()
-    password = os.getenv("SMTP_PASSWORD", "").strip()
-    return email, password
-
-
-async def send_otp_email(to_email: str, otp_code: str, name: str = "User") -> bool:
-    """
-    Send OTP via Gmail SMTP.
-    Uses aiosmtplib if available, falls back to sync smtplib in thread.
-    Always returns True so auth flow doesn't break — logs OTP to console as fallback.
-    """
-    smtp_email, smtp_password = _get_smtp_creds()
-
-    if not smtp_email or not smtp_password:
-        print(f"[OTP] ⚠ SMTP not configured (SMTP_EMAIL={repr(smtp_email)}, password_len={len(smtp_password)})")
-        print(f"[OTP] OTP for {to_email}: {otp_code}")
-        return True
-
-    msg = MIMEMultipart()
-    msg["From"] = smtp_email
-    msg["To"] = to_email
-    msg["Subject"] = "TrendZZo — Verify Your Account"
-
-    body = f"""
+def _build_email_html(name: str, otp_code: str) -> str:
+    return f"""
     <html>
     <body style="font-family: Arial, sans-serif; padding: 20px; background: #0F0F1E; color: #F0EEFF;">
         <div style="max-width: 480px; margin: 0 auto; background: #12121E; border-radius: 16px; padding: 32px; border: 1px solid rgba(124,58,237,0.3);">
@@ -68,47 +51,93 @@ async def send_otp_email(to_email: str, otp_code: str, name: str = "User") -> bo
     </body>
     </html>
     """
-    msg.attach(MIMEText(body, "html"))
 
-    print(f"[SMTP] Attempting to send OTP to {to_email} via {smtp_email}...")
 
-    # Method 1: aiosmtplib (async, preferred)
-    try:
-        import aiosmtplib
-        await aiosmtplib.send(
-            msg,
-            hostname="smtp.gmail.com",
-            port=587,
-            start_tls=True,
-            username=smtp_email,
-            password=smtp_password,
-            timeout=15,
-        )
-        print(f"[SMTP] ✓ OTP sent to {to_email} (aiosmtplib)")
-        return True
-    except ImportError:
-        pass  # aiosmtplib not installed, try sync
-    except Exception as e:
-        print(f"[SMTP] aiosmtplib failed: {type(e).__name__}: {e}")
-        # Fall through to sync method
+async def send_otp_email(to_email: str, otp_code: str, name: str = "User") -> bool:
+    """
+    Send OTP email. Tries methods in order:
+    1. Resend API (HTTPS — works on Render, Vercel, Railway, etc.)
+    2. Gmail SMTP via aiosmtplib (works locally, blocked on some hosts)
+    3. Gmail SMTP via smtplib in thread (last resort)
+    4. Console log fallback (always succeeds)
+    """
+    resend_key = os.getenv("RESEND_API_KEY", "").strip()
+    smtp_email = os.getenv("SMTP_EMAIL", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    resend_from = os.getenv("RESEND_FROM_EMAIL", "TrendZZo <onboarding@resend.dev>")
 
-    # Method 2: smtplib in thread (sync fallback)
-    try:
-        import smtplib
+    html = _build_email_html(name, otp_code)
 
-        def _send_sync():
-            server = smtplib.SMTP("smtp.gmail.com", 587, timeout=15)
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(smtp_email, smtp_password)
-            server.sendmail(smtp_email, to_email, msg.as_string())
-            server.quit()
+    # ── Method 1: Resend API (recommended for deployment) ─────────────────────
+    if resend_key:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.post(
+                    "https://api.resend.com/emails",
+                    headers={
+                        "Authorization": f"Bearer {resend_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "from": resend_from,
+                        "to": [to_email],
+                        "subject": "TrendZZo — Verify Your Account",
+                        "html": html,
+                    },
+                )
+                if response.status_code in (200, 201):
+                    print(f"[EMAIL] ✓ OTP sent to {to_email} via Resend")
+                    return True
+                else:
+                    print(f"[EMAIL] Resend failed ({response.status_code}): {response.text}")
+        except Exception as e:
+            print(f"[EMAIL] Resend error: {type(e).__name__}: {e}")
 
-        await asyncio.get_event_loop().run_in_executor(None, _send_sync)
-        print(f"[SMTP] ✓ OTP sent to {to_email} (smtplib sync)")
-        return True
-    except Exception as e:
-        print(f"[SMTP ERROR] {type(e).__name__}: {e}")
-        print(f"[OTP FALLBACK] OTP for {to_email}: {otp_code}")
-        return True
+    # ── Method 2: aiosmtplib (async SMTP) ─────────────────────────────────────
+    if smtp_email and smtp_password:
+        msg = MIMEMultipart()
+        msg["From"] = smtp_email
+        msg["To"] = to_email
+        msg["Subject"] = "TrendZZo — Verify Your Account"
+        msg.attach(MIMEText(html, "html"))
+
+        try:
+            import aiosmtplib
+            await aiosmtplib.send(
+                msg,
+                hostname="smtp.gmail.com",
+                port=587,
+                start_tls=True,
+                username=smtp_email,
+                password=smtp_password,
+                timeout=10,
+            )
+            print(f"[EMAIL] ✓ OTP sent to {to_email} via aiosmtplib")
+            return True
+        except ImportError:
+            pass
+        except Exception as e:
+            print(f"[EMAIL] aiosmtplib failed: {type(e).__name__}: {e}")
+
+        # ── Method 3: smtplib in thread ───────────────────────────────────────
+        try:
+            import smtplib
+
+            def _send():
+                server = smtplib.SMTP("smtp.gmail.com", 587, timeout=10)
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(smtp_email, smtp_password)
+                server.sendmail(smtp_email, to_email, msg.as_string())
+                server.quit()
+
+            await asyncio.get_event_loop().run_in_executor(None, _send)
+            print(f"[EMAIL] ✓ OTP sent to {to_email} via smtplib")
+            return True
+        except Exception as e:
+            print(f"[EMAIL] smtplib failed: {type(e).__name__}: {e}")
+
+    # ── Method 4: Console fallback ────────────────────────────────────────────
+    print(f"[EMAIL] ⚠ All methods failed. OTP for {to_email}: {otp_code}")
+    return True
