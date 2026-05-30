@@ -119,18 +119,26 @@ async def send_otp_email(to_email: str, otp_code: str, name: str = "User") -> bo
         except Exception as e:
             print(f"[EMAIL] aiosmtplib failed: {type(e).__name__}: {e}")
 
-        # ── Method 3: smtplib in thread ───────────────────────────────────────
+        # ── Method 3: smtplib in thread (try port 465 SSL — some hosts block 587 but allow 465) ──
         try:
             import smtplib
 
             def _send():
-                server = smtplib.SMTP("smtp.gmail.com", 587, timeout=10)
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-                server.login(smtp_email, smtp_password)
-                server.sendmail(smtp_email, to_email, msg.as_string())
-                server.quit()
+                try:
+                    # Try port 465 (SSL) first — works on more hosting platforms
+                    server = smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10)
+                    server.login(smtp_email, smtp_password)
+                    server.sendmail(smtp_email, to_email, msg.as_string())
+                    server.quit()
+                except Exception:
+                    # Fall back to port 587 (STARTTLS)
+                    server = smtplib.SMTP("smtp.gmail.com", 587, timeout=10)
+                    server.ehlo()
+                    server.starttls()
+                    server.ehlo()
+                    server.login(smtp_email, smtp_password)
+                    server.sendmail(smtp_email, to_email, msg.as_string())
+                    server.quit()
 
             await asyncio.get_event_loop().run_in_executor(None, _send)
             print(f"[EMAIL] ✓ OTP sent to {to_email} via smtplib")
