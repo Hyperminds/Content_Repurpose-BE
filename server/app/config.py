@@ -47,10 +47,10 @@ AI_MODEL: str = os.getenv("AI_MODEL", "openrouter/free")
 AI_BASE_URL: str = "https://openrouter.ai/api/v1"
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-# In production set this to your Vercel URL, e.g.:
-# CORS_ORIGINS=https://your-app.vercel.app
 _cors_raw = os.getenv("CORS_ORIGINS", "*")
-CORS_ORIGINS: list = ["*"] if _cors_raw == "*" else [o.strip() for o in _cors_raw.split(",")]
+CORS_ORIGINS: list = ["*"] if _cors_raw.strip() == "*" else [o.strip() for o in _cors_raw.split(",")]
+# When allowing all origins, credentials must be disabled (browser security rule)
+CORS_ALLOW_CREDENTIALS: bool = CORS_ORIGINS != ["*"]
 
 # ── SMTP ──────────────────────────────────────────────────────────────────────
 SMTP_EMAIL: str = os.getenv("SMTP_EMAIL", "")

@@ -1,7 +1,6 @@
 """
 AI Resource Usage Tracking Service.
 Tracks token usage, generation time, and estimated costs for every AI generation.
-Pricing is based on OpenRouter/OpenAI gpt-4o-mini rates.
 """
 
 import time
@@ -11,22 +10,48 @@ from app.database import db
 
 generation_logs_collection = db["generation_logs"]
 
-# ============ MODEL PRICING (per 1M tokens) ============ #
-# gpt-4o-mini pricing via OpenRouter
-MODEL_PRICING = {
-    "openai/gpt-4o-mini": {
-        "input_per_1m": 0.15,   # $0.15 per 1M input tokens
-        "output_per_1m": 0.60,  # $0.60 per 1M output tokens
-    },
-    "openai/gpt-4o": {
-        "input_per_1m": 5.00,
-        "output_per_1m": 15.00,
-    },
-    "default": {
+# ============ AVAILABLE MODELS FOR USER SELECTION ============ #
+# Ordered by cost (cheapest first)
+AVAILABLE_MODELS = [
+    {
+        "id": "openai/gpt-4o-mini",
+        "name": "GPT-4o Mini",
+        "provider": "OpenAI",
+        "description": "Best quality. Fast and reliable.",
         "input_per_1m": 0.15,
         "output_per_1m": 0.60,
+        "est_cost_per_generation": 0.003,
+        "badge": "Recommended",
+        "badge_color": "#10B981",
     },
-}
+    {
+        "id": "openai/gpt-4.1-nano",
+        "name": "GPT-4.1 Nano",
+        "provider": "OpenAI",
+        "description": "Faster and cheaper than 4o-mini.",
+        "input_per_1m": 0.10,
+        "output_per_1m": 0.40,
+        "est_cost_per_generation": 0.002,
+        "badge": "Fast",
+        "badge_color": "#06B6D4",
+    },
+    {
+        "id": "mistralai/mistral-small-3.2-24b-instruct",
+        "name": "Mistral Small 3.2",
+        "provider": "Mistral",
+        "description": "Affordable European model. Great quality.",
+        "input_per_1m": 0.10,
+        "output_per_1m": 0.30,
+        "est_cost_per_generation": 0.0012,
+        "badge": "Cheapest",
+        "badge_color": "#F59E0B",
+    },
+]
+
+# ============ MODEL PRICING (per 1M tokens) ============ #
+MODEL_PRICING = {m["id"]: {"input_per_1m": m["input_per_1m"], "output_per_1m": m["output_per_1m"]}
+                 for m in AVAILABLE_MODELS}
+MODEL_PRICING["default"] = {"input_per_1m": 0.15, "output_per_1m": 0.60}
 
 
 def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:

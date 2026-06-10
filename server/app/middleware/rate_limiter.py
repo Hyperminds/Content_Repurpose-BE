@@ -66,8 +66,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         method = request.method
 
-        # Only rate-limit POST/PUT (mutations) and expensive GETs
-        if method in ("OPTIONS", "HEAD"):
+        # Always pass through OPTIONS (CORS preflight) and HEAD
+        if method in ("OPTIONS", "HEAD", "GET"):
             return await call_next(request)
 
         limit_config = _get_limit_for_path(path)

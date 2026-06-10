@@ -24,7 +24,7 @@ from app.routes.dev_routes import router as dev_router
 from app.database import init_db
 from app.models.user_model import init_users_collection
 from app.services.scheduler_worker import start_scheduler, stop_scheduler
-from app.config import log_env, APP_NAME, APP_VERSION, CORS_ORIGINS, APP_ENV
+from app.config import log_env, APP_NAME, APP_VERSION, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, APP_ENV
 from app.middleware.error_handler import ErrorHandlerMiddleware
 from app.middleware.rate_limiter import RateLimitMiddleware
 
@@ -51,15 +51,17 @@ app = FastAPI(
 )
 
 # ── Middleware ────────────────────────────────────────────────────────────────
-app.add_middleware(ErrorHandlerMiddleware)
-app.add_middleware(RateLimitMiddleware)
+# Order matters: last added = outermost (runs first on request)
+# CORS must be outermost so preflight OPTIONS requests are handled before anything else
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(ErrorHandlerMiddleware)
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 app.include_router(auth_router)

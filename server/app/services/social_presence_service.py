@@ -18,7 +18,7 @@ client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
 )
 
-MODEL = "openrouter/free"
+MODEL = "openai/gpt-4o-mini"
 
 PLATFORM_ANALYSIS_PROMPTS = {
     "linkedin": {
