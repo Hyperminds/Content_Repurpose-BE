@@ -22,10 +22,17 @@ client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
 )
 
-MODEL = "openrouter/free"
+MODEL = "openai/gpt-4o-mini"  # Default model — overridden per request
+_current_model = MODEL  # Tracks active model for usage recording
 
 # Global token accumulator for the current generation batch
 _current_batch_usage = {}
+
+
+def _set_model(model_id: str):
+    """Set the active model for the current generation batch."""
+    global _current_model
+    _current_model = model_id or MODEL
 
 
 def _reset_batch():
@@ -455,19 +462,26 @@ Source Content:
 
 # ---------------- MAIN FUNCTION ---------------- #
 
-async def generate_text_content(source_content, settings=None, platform_prompts=None):
+async def generate_text_content(source_content, settings=None, platform_prompts=None, model_id: str = None):
+    global MODEL
 
     if settings is None:
         settings = {}
     if platform_prompts is None:
         platform_prompts = {}
 
+    # Swap model for this request, restore after
+    original_model = MODEL
+    active_model = model_id or original_model
+    _set_model(active_model)
+    MODEL = active_model
+
     # ── DEVELOPMENT MODE: return mock content instantly ──────────────────────
     if USE_MOCK:
+        MODEL = original_model
         return get_mock_content(source_content, settings, platform_prompts)
 
     # ── PRODUCTION MODE: call real AI APIs ───────────────────────────────────
-    # Generate all platforms in parallel
     try:
         linkedin, twitter, instagram, reddit, medium, meta, quora = await asyncio.gather(
             generate_linkedin(source_content, settings, platform_prompts),
@@ -478,22 +492,17 @@ async def generate_text_content(source_content, settings=None, platform_prompts=
             generate_meta(source_content, settings, platform_prompts),
             generate_quora(source_content, settings, platform_prompts),
         )
-
         return {
-            "linkedin": linkedin,
-            "twitter": twitter,
-            "instagram": instagram,
-            "reddit": reddit,
-            "medium": medium,
-            "meta": meta,
-            "quora": quora,
+            "linkedin": linkedin, "twitter": twitter, "instagram": instagram,
+            "reddit": reddit, "medium": medium, "meta": meta, "quora": quora,
         }
 
     except Exception as e:
-
         print("========== TEXT GENERATION ERROR ==========")
         print(type(e))
         print(str(e))
         print("==========================================")
-
         return None
+
+    finally:
+        MODEL = original_model

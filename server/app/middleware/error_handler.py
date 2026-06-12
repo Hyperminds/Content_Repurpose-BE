@@ -18,6 +18,9 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
+        # Always pass OPTIONS through untouched (CORS preflight)
+        if request.method == "OPTIONS":
+            return await call_next(request)
         try:
             response = await call_next(request)
             return response
