@@ -1,0 +1,48 @@
+name: Deploy Content-Repurpose Backend to EC2 via S3 + SSM
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'server/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create deployment zip
+        run: |
+          cd server
+          zip -r ../content-repurpose.zip . \
+            -x "__pycache__/*" \
+            -x "*.pyc" \
+            -x ".git/*" \
+            -x ".github/*" \
+            -x "venv/*"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Upload zip to S3
+        run: |
+          aws s3 cp content-repurpose.zip s3://webinspect-bucket/content-repurpose-latest.zip
+
+      - name: Deploy on EC2 via SSM
+        run: |
+          aws ssm send-command \
+            --region ap-south-1 \
+            --document-name "AWS-RunShellScript" \
+            --targets '[{"Key":"InstanceIds","Values":["i-0219c11f642a8d920"]}]' \
+            --comment "Deploy Content Repurpose Backend" \
+            --timeout-seconds 600 \
+            --parameters '{"commands":["set -e","APP_DIR=/home/ec2-user/content-repurpose","ZIP=/tmp/content-repurpose.zip","ENV_BACKUP=/tmp/content-repurpose.env.bak","","echo === Backup .env if exists ===","[ -f $APP_DIR/app/.env ] && cp $APP_DIR/app/.env $ENV_BACKUP || true","","echo === Stop running container ===","cd $APP_DIR 2>/dev/null && docker compose down || true","","echo === Clean old code ===","rm -rf $APP_DIR","mkdir -p $APP_DIR","","echo === Download artifact from S3 ===","aws s3 cp s3://webinspect-bucket/content-repurpose-latest.zip $ZIP","","echo === Extract new code ===","unzip -oq $ZIP -d $APP_DIR","","echo === Restore .env ===","[ -f $ENV_BACKUP ] && mv $ENV_BACKUP $APP_DIR/app/.env || true","","echo === Fix ownership ===","chown -R ec2-user:ec2-user $APP_DIR","","echo === Build and start container ===","cd $APP_DIR","sudo -u ec2-user docker compose up -d --build","","echo === Clean old images ===","docker image prune -f","","echo === Done ==="]}'
