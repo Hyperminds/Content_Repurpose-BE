@@ -13,3 +13,4 @@ python-jose==3.3.0
 bcrypt>=4.2.0
 tzdata>=2024.1
 python-multipart>=0.0.6
+cloudinary==1.40.0
