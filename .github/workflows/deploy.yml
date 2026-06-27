@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'server/**'
+      - "server/**"
   workflow_dispatch:
 
 jobs:
@@ -24,7 +24,8 @@ jobs:
             -x "*.pyc" \
             -x ".git/*" \
             -x ".github/*" \
-            -x "venv/*"
+            -x "venv/*" \
+            -x ".env"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -40,9 +41,57 @@ jobs:
       - name: Deploy on EC2 via SSM
         run: |
           aws ssm send-command \
-            --region ap-south-1 \
-            --document-name "AWS-RunShellScript" \
-            --targets '[{"Key":"InstanceIds","Values":["i-0219c11f642a8d920"]}]' \
-            --comment "Deploy Content Repurpose Backend" \
-            --timeout-seconds 600 \
-            --parameters '{"commands":["set -e","APP_DIR=/home/ec2-user/content-repurpose","ZIP=/tmp/content-repurpose.zip","ENV_BACKUP=/tmp/content-repurpose.env.bak","","echo === Backup .env if exists ===","[ -f $APP_DIR/app/.env ] && cp $APP_DIR/app/.env $ENV_BACKUP || true","","echo === Stop running container ===","cd $APP_DIR 2>/dev/null && docker compose down || true","","echo === Clean old code ===","rm -rf $APP_DIR","mkdir -p $APP_DIR","","echo === Download artifact from S3 ===","aws s3 cp s3://webinspect-bucket/content-repurpose-latest.zip $ZIP","","echo === Extract new code ===","unzip -oq $ZIP -d $APP_DIR","","echo === Restore .env ===","[ -f $ENV_BACKUP ] && mv $ENV_BACKUP $APP_DIR/app/.env || true","","echo === Fix ownership ===","chown -R ec2-user:ec2-user $APP_DIR","","echo === Build and start container ===","cd $APP_DIR","sudo -u ec2-user docker compose up -d --build","","echo === Clean old images ===","docker image prune -f","","echo === Done ==="]}'
+          --region ap-south-1 \
+          --document-name "AWS-RunShellScript" \
+          --targets '[{"Key":"InstanceIds","Values":["i-0219c11f642a8d920"]}]' \
+          --comment "Deploy Content Repurpose Backend" \
+          --timeout-seconds 900 \
+          --parameters '{
+            "commands":[
+              "set -e",
+
+              "APP_DIR=/home/ec2-user/content-repurpose",
+              "ZIP=/tmp/content-repurpose.zip",
+              "ENV_BACKUP=/tmp/content-repurpose.env.bak",
+
+              "echo === Stop PM2 ===",
+              "sudo -u ec2-user pm2 stop content-repurpose || true",
+              "sudo -u ec2-user pm2 delete content-repurpose || true",
+
+              "echo === Backup .env ===",
+              "[ -f $APP_DIR/app/.env ] && cp $APP_DIR/app/.env $ENV_BACKUP || true",
+
+              "echo === Clean application ===",
+              "rm -rf $APP_DIR",
+              "mkdir -p $APP_DIR",
+              "chown -R ec2-user:ec2-user $APP_DIR",
+
+              "echo === Download artifact ===",
+              "aws s3 cp s3://webinspect-bucket/content-repurpose-latest.zip $ZIP",
+
+              "echo === Extract ===",
+              "sudo -u ec2-user unzip -oq $ZIP -d $APP_DIR",
+
+              "echo === Restore .env ===",
+              "mkdir -p $APP_DIR/app",
+              "[ -f $ENV_BACKUP ] && sudo -u ec2-user mv $ENV_BACKUP $APP_DIR/app/.env || true",
+              "[ -f $APP_DIR/app/.env ] && chmod 600 $APP_DIR/app/.env || true",
+
+              "echo === Create Python Virtual Environment ===",
+              "cd $APP_DIR",
+              "python3 -m venv venv",
+
+              "echo === Install Dependencies ===",
+              "sudo -u ec2-user bash -c \"source venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt\"",
+
+              "echo === Start FastAPI ===",
+              "sudo -u ec2-user pm2 start \"venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000\" --name content-repurpose",
+
+              "sudo -u ec2-user pm2 save",
+
+              "echo === Deployment Completed ==="
+            ]
+          }'
+
+      - name: Deployment completed
+        run: echo "Content Repurpose Backend deployed successfully!"
