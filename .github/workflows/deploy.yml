@@ -68,24 +68,24 @@ jobs:
               "[ -f $APP_SUBDIR/.env ] && chmod 600 $APP_SUBDIR/.env || true",
 
               "echo '=== Create Virtual Environment ==='",
-              "cd $APP_SUBDIR",
+              "cd $APP_DIR",
               "rm -rf venv",
               "python3 -m venv venv",
 
               "echo '=== Upgrade pip ==='",
-              "$APP_SUBDIR/venv/bin/pip install --upgrade pip",
+              "$APP_DIR/venv/bin/pip install --upgrade pip",
 
               "echo '=== Install Requirements ==='",
-              "$APP_SUBDIR/venv/bin/pip install -r requirements.txt",
+              "$APP_DIR/venv/bin/pip install -r $APP_SUBDIR/requirements.txt",
 
               "echo '=== Stop Existing PM2 Process ==='",
               "pm2 delete content-repurpose || true",
 
               "echo '=== Start FastAPI ==='",
-              "cd $APP_SUBDIR",
-              "pm2 start venv/bin/python --interpreter none --name content-repurpose -- -m uvicorn main:app --host 0.0.0.0 --port 8000",
+              "cd $APP_DIR",
+              "sudo -u ec2-user pm2 start $APP_DIR/venv/bin/python --interpreter none --name content-repurpose --cwd $APP_DIR -- -m uvicorn app.main:app --host 0.0.0.0 --port 8000",
 
-              "pm2 save",
+              "sudo -u ec2-user pm2 save",
 
               "echo '=== Deployment Completed Successfully ==='"
             ]
