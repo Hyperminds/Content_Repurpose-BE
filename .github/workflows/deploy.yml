@@ -1,3 +1,4 @@
+```yaml
 name: Deploy Content-Repurpose Backend to EC2 via S3 + SSM
 
 on:
@@ -40,18 +41,13 @@ jobs:
 
       - name: Deploy on EC2 via SSM
         run: |
-          aws ssm send-command \
-          --region ap-south-1 \
-          --document-name "AWS-RunShellScript" \
-          --targets '[{"Key":"InstanceIds","Values":["i-0219c11f642a8d920"]}]' \
-          --comment "Deploy Content Repurpose Backend" \
-          --timeout-seconds 900 \
-          --parameters '{
-            "commands":[
+          cat > ssm-commands.json <<EOF
+          {
+            "commands": [
               "set -e",
 
               "APP_DIR=/home/ec2-user/content-repurpose",
-              "APP_SUBDIR=$APP_DIR/app",
+              "APP_SUBDIR=/home/ec2-user/content-repurpose/app",
               "ZIP=/tmp/content-repurpose.zip",
               "ENV_BACKUP=/tmp/content-repurpose.env.bak",
 
@@ -60,40 +56,56 @@ jobs:
               "sudo -u ec2-user pm2 delete content-repurpose || true",
 
               "echo === Backup .env ===",
-              "[ -f $APP_SUBDIR/.env ] && cp $APP_SUBDIR/.env $ENV_BACKUP || true",
+              "[ -f \\$APP_SUBDIR/.env ] && cp \\$APP_SUBDIR/.env \\$ENV_BACKUP || true",
 
-              "echo === Clean application ===",
-              "rm -rf $APP_DIR",
-              "mkdir -p $APP_DIR",
-              "chown -R ec2-user:ec2-user $APP_DIR",
+              "echo === Remove old application ===",
+              "rm -rf \\$APP_DIR",
+              "mkdir -p \\$APP_DIR",
+              "chown -R ec2-user:ec2-user \\$APP_DIR",
 
-              "echo === Download artifact ===",
-              "aws s3 cp s3://webinspect-bucket/content-repurpose-latest.zip $ZIP",
+              "echo === Download latest build ===",
+              "aws s3 cp s3://webinspect-bucket/content-repurpose-latest.zip \\$ZIP",
 
-              "echo === Extract application ===",
-              "sudo -u ec2-user unzip -oq $ZIP -d $APP_DIR",
+              "echo === Extract build ===",
+              "sudo -u ec2-user unzip -oq \\$ZIP -d \\$APP_DIR",
 
               "echo === Restore .env ===",
-              "mkdir -p $APP_SUBDIR",
-              "[ -f $ENV_BACKUP ] && mv $ENV_BACKUP $APP_SUBDIR/.env || true",
-              "[ -f $APP_SUBDIR/.env ] && chown ec2-user:ec2-user $APP_SUBDIR/.env || true",
-              "[ -f $APP_SUBDIR/.env ] && chmod 600 $APP_SUBDIR/.env || true",
+              "mkdir -p \\$APP_SUBDIR",
+              "[ -f \\$ENV_BACKUP ] && mv \\$ENV_BACKUP \\$APP_SUBDIR/.env || true",
+              "[ -f \\$APP_SUBDIR/.env ] && chown ec2-user:ec2-user \\$APP_SUBDIR/.env || true",
+              "[ -f \\$APP_SUBDIR/.env ] && chmod 600 \\$APP_SUBDIR/.env || true",
 
-              "echo === Create Virtual Environment ===",
-              "cd $APP_SUBDIR",
+              "echo === Create virtual environment ===",
+              "cd \\$APP_SUBDIR",
+              "rm -rf venv",
               "sudo -u ec2-user python3 -m venv venv",
 
-              "echo === Install Dependencies ===",
-              "sudo -u ec2-user bash -c \"cd $APP_SUBDIR && source venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt\"",
+              "echo === Install dependencies ===",
+              "sudo -u ec2-user \\$APP_SUBDIR/venv/bin/pip install --upgrade pip",
+              "sudo -u ec2-user \\$APP_SUBDIR/venv/bin/pip install -r \\$APP_SUBDIR/requirements.txt",
 
-              "echo === Start Application ===",
-              "sudo -u ec2-user bash -c \"cd $APP_SUBDIR && pm2 start 'venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000' --name content-repurpose\"",
+              "echo === Verify uvicorn ===",
+              "test -f \\$APP_SUBDIR/venv/bin/uvicorn",
+
+              "echo === Start application ===",
+              "cd \\$APP_SUBDIR",
+              "sudo -u ec2-user pm2 start \\$APP_SUBDIR/venv/bin/uvicorn --name content-repurpose -- main:app --host 0.0.0.0 --port 8000",
 
               "sudo -u ec2-user pm2 save",
 
               "echo === Deployment Completed ==="
             ]
-          }'
+          }
+          EOF
+
+          aws ssm send-command \
+            --region ap-south-1 \
+            --document-name "AWS-RunShellScript" \
+            --targets '[{"Key":"InstanceIds","Values":["i-0219c11f642a8d920"]}]' \
+            --comment "Deploy Content Repurpose Backend" \
+            --timeout-seconds 900 \
+            --parameters file://ssm-commands.json
 
       - name: Deployment completed
         run: echo "Content Repurpose Backend deployed successfully!"
+```
