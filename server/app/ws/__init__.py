@@ -1,0 +1,1 @@
+# WebSocket manager package

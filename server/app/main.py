@@ -127,7 +127,7 @@ async def health_check():
         checks["ai_service"] = "not_configured"
 
     # WebSocket check
-    from app.websockets.manager import ws_manager
+    from app.ws.manager import ws_manager
     checks["websockets"] = f"active ({ws_manager.active_connections} connections)"
 
     all_healthy = all(
@@ -154,7 +154,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, channels: str =
     Main WebSocket endpoint for realtime updates.
     Connect with: ws://localhost:8000/ws/{user_id}?channels=dashboard,notifications
     """
-    from app.websockets.manager import ws_manager
+    from app.ws.manager import ws_manager
     from app.services.logger import log
 
     channel_list = [c.strip() for c in channels.split(",") if c.strip()]
@@ -192,7 +192,7 @@ async def system_stats():
         from fastapi import HTTPException
         raise HTTPException(status_code=403, detail="Not available in production")
 
-    from app.websockets.manager import ws_manager
+    from app.ws.manager import ws_manager
     from app.services.background_tasks import task_queue
     from app.services.feature_flags import get_all_flags
 
