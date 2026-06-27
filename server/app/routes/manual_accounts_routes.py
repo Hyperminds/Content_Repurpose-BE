@@ -18,7 +18,7 @@ MAX_ACCOUNTS = 3
 @router.post("/{platform}")
 async def add_manual_account(platform: str, data: dict = Body(...), user: dict = Depends(get_current_user)):
     """Add a manual account (just username/profile info, no OAuth)."""
-    if platform not in ("twitter", "quora", "instagram", "reddit", "medium", "meta"):
+    if platform not in ("twitter", "quora", "instagram", "reddit", "medium", "meta", "linkedin"):
         raise HTTPException(status_code=400, detail="Platform not supported for manual accounts.")
 
     username = data.get("username", "").strip().lstrip("@")
