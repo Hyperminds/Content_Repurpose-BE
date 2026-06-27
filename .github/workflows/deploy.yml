@@ -67,10 +67,13 @@ jobs:
               "[ -f $APP_SUBDIR/.env ] && chown ec2-user:ec2-user $APP_SUBDIR/.env || true",
               "[ -f $APP_SUBDIR/.env ] && chmod 600 $APP_SUBDIR/.env || true",
 
+              "echo '=== Install Python 3.11 (if not present) ==='",
+              "if ! command -v python3.11 &> /dev/null; then sudo amazon-linux-extras install python3.11 -y || sudo yum install python3.11 -y; fi",
+
               "echo '=== Create Virtual Environment ==='",
               "cd $APP_DIR",
               "rm -rf venv",
-              "python3 -m venv venv",
+              "python3.11 -m venv venv",
 
               "echo '=== Upgrade pip ==='",
               "$APP_DIR/venv/bin/pip install --upgrade pip",
