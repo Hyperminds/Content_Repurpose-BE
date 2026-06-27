@@ -20,6 +20,17 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
+      - name: Create Deployment Package
+        run: |
+          cd server
+          zip -r content-repurpose-latest.zip app
+
+      - name: Upload Deployment Package to S3
+        run: |
+          aws s3 cp \
+            server/content-repurpose-latest.zip \
+            s3://webinspect-bucket/content-repurpose-latest.zip
+
       - name: Deploy on EC2 via SSM
         run: |
           cat > ssm-commands.json <<'EOF'
@@ -39,15 +50,15 @@ jobs:
               "echo '=== Backup .env ==='",
               "[ -f $APP_SUBDIR/.env ] && cp $APP_SUBDIR/.env $ENV_BACKUP || true",
 
-              "echo '=== Clean old deployment ==='",
+              "echo '=== Clean Old Deployment ==='",
               "rm -rf $APP_DIR",
               "mkdir -p $APP_DIR",
               "chown -R ec2-user:ec2-user $APP_DIR",
 
-              "echo '=== Download latest artifact ==='",
+              "echo '=== Download Latest ZIP ==='",
               "aws s3 cp s3://webinspect-bucket/content-repurpose-latest.zip $ZIP",
 
-              "echo '=== Extract application ==='",
+              "echo '=== Extract ZIP ==='",
               "sudo -u ec2-user unzip -oq $ZIP -d $APP_DIR",
 
               "echo '=== Restore .env ==='",
@@ -59,22 +70,22 @@ jobs:
               "echo '=== Create Virtual Environment ==='",
               "cd $APP_SUBDIR",
               "rm -rf venv",
-              "sudo -u ec2-user python3 -m venv venv",
+              "python3 -m venv venv",
 
               "echo '=== Upgrade pip ==='",
-              "sudo -u ec2-user $APP_SUBDIR/venv/bin/pip install --upgrade pip",
+              "$APP_SUBDIR/venv/bin/pip install --upgrade pip",
 
-              "echo '=== Install dependencies ==='",
-              "sudo -u ec2-user $APP_SUBDIR/venv/bin/pip install -r $APP_SUBDIR/requirements.txt",
+              "echo '=== Install Requirements ==='",
+              "$APP_SUBDIR/venv/bin/pip install -r requirements.txt",
 
-              "echo '=== Verify Uvicorn ==='",
-              "test -f $APP_SUBDIR/venv/bin/uvicorn",
+              "echo '=== Stop Existing PM2 Process ==='",
+              "pm2 delete content-repurpose || true",
 
-              "echo '=== Start Application ==='",
+              "echo '=== Start FastAPI ==='",
               "cd $APP_SUBDIR",
-              "sudo -u ec2-user pm2 start $APP_SUBDIR/venv/bin/uvicorn --name content-repurpose -- main:app --host 0.0.0.0 --port 8000",
+              "pm2 start venv/bin/python --interpreter none --name content-repurpose -- -m uvicorn main:app --host 0.0.0.0 --port 8000",
 
-              "sudo -u ec2-user pm2 save",
+              "pm2 save",
 
               "echo '=== Deployment Completed Successfully ==='"
             ]
