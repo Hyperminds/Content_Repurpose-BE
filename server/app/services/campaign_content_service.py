@@ -15,10 +15,7 @@ from app.database import db
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-client = AsyncOpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1",
-)
+from app.core.ai_client import ai_client as client
 MODEL = "openai/gpt-4o-mini"
 
 campaign_days_collection    = db["campaign_days"]
@@ -107,12 +104,34 @@ IMPORTANT:
 - Return ONLY valid JSON, no markdown
 """
 
+    import time as _time
+    _gen_start = _time.time()
     response = await client.chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.75,
         max_tokens=800,
     )
+    _gen_ms = int((_time.time() - _gen_start) * 1000)
+
+    # ── AI usage tracking (additive, fail-safe — does not alter generation) ───
+    try:
+        from app.services.ai_usage_service import log_generation
+        _usage = getattr(response, "usage", None)
+        if _usage and campaign.get("user_id"):
+            await log_generation(
+                user_id=campaign.get("user_id"),
+                platform=platform,
+                model=MODEL,
+                prompt_tokens=getattr(_usage, "prompt_tokens", 0),
+                completion_tokens=getattr(_usage, "completion_tokens", 0),
+                generation_time_ms=_gen_ms,
+                content_preview=f"[campaign:{campaign.get('campaign_name', '')}] day {day.get('day_number', '')}",
+                organization_id=campaign.get("organization_id") or campaign.get("user_id") or "default",
+                campaign_id=campaign.get("id"),
+            )
+    except Exception as _e:
+        print(f"[ai-usage] campaign day logging failed: {_e}")
 
     raw = response.choices[0].message.content.strip()
     if raw.startswith("```"):

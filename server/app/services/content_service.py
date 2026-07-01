@@ -17,10 +17,7 @@ from app.mock_data.content_generation import get_mock_content
 # Load .env from the app directory regardless of working directory
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-client = AsyncOpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1",
-)
+from app.core.ai_client import ai_client as client
 
 MODEL = "openai/gpt-4o-mini"  # Default model — overridden per request
 _current_model = MODEL  # Tracks active model for usage recording

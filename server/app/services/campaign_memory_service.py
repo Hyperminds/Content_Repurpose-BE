@@ -14,10 +14,7 @@ from app.database import db
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-client = AsyncOpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1",
-)
+from app.core.ai_client import ai_client as client
 MODEL = "openai/gpt-4o-mini"
 
 campaign_memory_collection = db["campaign_memory"]

@@ -1,15 +1,10 @@
-import os
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
 from fastapi import HTTPException, Request
-from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-
-JWT_SECRET = os.getenv("JWT_SECRET", "fallback_secret_key")
-JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-JWT_EXPIRY_MINUTES = int(os.getenv("JWT_EXPIRY_MINUTES", "1440"))
+# Single source of truth for JWT settings (was previously duplicated here with
+# mismatched defaults). config.py already loads .env and exposes these.
+from app.config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRY_MINUTES
 
 
 def create_access_token(data: dict) -> str:

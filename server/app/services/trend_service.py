@@ -16,10 +16,7 @@ from app.mock_data.trends import get_mock_full_trend_analysis
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-client = AsyncOpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1",
-)
+from app.core.ai_client import ai_client as client
 
 MODEL = "openai/gpt-4o-mini"
 

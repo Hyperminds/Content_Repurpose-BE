@@ -26,6 +26,12 @@ IS_DEVELOPMENT = APP_ENV == "development"
 IS_STAGING     = APP_ENV == "staging"
 IS_PRODUCTION  = APP_ENV == "production"
 
+# Detect the AWS Lambda runtime. The Lambda runtime always sets
+# AWS_LAMBDA_FUNCTION_NAME, so this is a reliable, zero-config signal used to
+# disable long-running background workers (scheduler / metering) that are
+# incompatible with the short-lived, frozen-between-invocations Lambda model.
+IS_LAMBDA: bool = bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+
 # USE_MOCK_DATA controls whether AI/trend/social calls use mock data.
 # Decoupled from APP_ENV so you can deploy in "production" mode
 # (real CORS, real auth, real DB) while still saving AI credits.
