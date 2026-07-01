@@ -22,6 +22,7 @@ async def generate_content(request):
 
     # Get user_id from auth header
     user_id = None
+    organization_id = "default"
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         try:
@@ -29,6 +30,7 @@ async def generate_content(request):
             token = auth_header.split(" ")[1]
             payload = decode_access_token(token)
             user_id = payload.get("user_id")
+            organization_id = payload.get("organization_id") or payload.get("org_id") or user_id or "default"
         except Exception:
             pass
 
@@ -86,12 +88,24 @@ async def generate_content(request):
                     generation_time_ms=generation_time_ms // 7,
                     content_preview=content[:80],
                     history_id=history_id,
+                    organization_id=organization_id,
                 )
             except Exception as e:
                 print(f"Failed to log AI usage for {platform}: {e}")
 
     # Get model info for response
     model_info = next((m for m in AVAILABLE_MODELS if m["id"] == model_id), None)
+
+    # ── Metering hook (additive, fail-safe) ──────────────────────────────────
+    # Attach AI usage to the request so the global metering middleware records it.
+    # Does not alter any business logic or the response.
+    try:
+        from app.utils.metering_utils import record_ai_usage
+        _prompt = sum(u.get("prompt_tokens", 0) for u in batch_usage.values())
+        _completion = sum(u.get("completion_tokens", 0) for u in batch_usage.values())
+        record_ai_usage(request, model_id, _prompt, _completion, total_cost)
+    except Exception:
+        pass
 
     # In mock mode, simulate realistic usage data for display
     from app.config import USE_MOCK

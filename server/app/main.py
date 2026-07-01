@@ -21,24 +21,45 @@ from app.routes.super_admin_routes import router as super_admin_router
 from app.routes.social_presence_routes import router as social_presence_router
 from app.routes.trend_routes import router as trend_router
 from app.routes.dev_routes import router as dev_router
+from app.routes.metering_routes import router as metering_router
 from app.database import init_db
 from app.models.user_model import init_users_collection
 from app.services.scheduler_worker import start_scheduler, stop_scheduler
-from app.config import log_env, APP_NAME, APP_VERSION, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, APP_ENV
+from app.config import log_env, APP_NAME, APP_VERSION, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, APP_ENV, IS_LAMBDA
 from app.middleware.error_handler import ErrorHandlerMiddleware
 from app.middleware.rate_limiter import RateLimitMiddleware
+from app.middleware.metering_middleware import MeteringMiddleware
+from app.services.metering_service import start_metering_worker, stop_metering_worker
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    # Index creation is a one-time migration concern under Lambda — skip it on
+    # every cold start (run it via a migration job instead).
+    await init_db(create_indexes=not IS_LAMBDA)
     await init_users_collection()
+
+    if IS_LAMBDA:
+        # Long-running background workers (polling scheduler, in-process metering
+        # queue consumer) are incompatible with Lambda's short-lived, frozen
+        # execution model. In Lambda these responsibilities move to managed
+        # services (EventBridge Scheduler → publish trigger; metering → an
+        # external sink). See LAMBDA.md.
+        log_env()
+        print("⚡ Lambda runtime: background workers disabled (use EventBridge + external sinks)")
+        yield
+        return
+
+    # ── Local / server (uvicorn) runtime — full behaviour preserved ──────────
     start_scheduler()
+    start_metering_worker()
     log_env()
     print(f"✓ MongoDB connected & indexes created")
     print(f"✓ Scheduler worker started")
+    print(f"✓ Metering worker started")
     yield
     stop_scheduler()
+    await stop_metering_worker()
 
 
 app = FastAPI(
@@ -62,6 +83,9 @@ app.add_middleware(
 )
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(ErrorHandlerMiddleware)
+# Metering added last → outermost: it observes the final response (post error-handling)
+# and total request time without interfering with any business logic.
+app.add_middleware(MeteringMiddleware)
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 app.include_router(auth_router)
@@ -84,6 +108,7 @@ app.include_router(super_admin_router)
 app.include_router(social_presence_router)
 app.include_router(trend_router)
 app.include_router(dev_router)
+app.include_router(metering_router)
 
 
 # ── Health Check ──────────────────────────────────────────────────────────────

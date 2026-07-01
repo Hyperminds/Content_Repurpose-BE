@@ -14,3 +14,4 @@ bcrypt>=4.2.0
 tzdata>=2024.1
 python-multipart>=0.0.6
 cloudinary==1.40.0
+mangum>=0.17.0
