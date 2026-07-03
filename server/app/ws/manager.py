@@ -90,6 +90,27 @@ class ConnectionManager:
                 dead.add(ws)
         self._all_connections -= dead
 
+    async def close_all(self, code: int = 1001, reason: str = "Workspace entering sleep") -> int:
+        """
+        Gracefully close every active WebSocket session and clear all registries.
+
+        Used by the Sleep Orchestrator during shutdown. Best-effort: each close
+        is guarded so one failure can't stop the rest. Returns the number of
+        connections that were closed. (1001 = "going away".)
+        """
+        connections = list(self._all_connections)
+        closed = 0
+        for ws in connections:
+            try:
+                await ws.close(code=code, reason=reason)
+                closed += 1
+            except Exception:
+                pass
+        self._all_connections.clear()
+        self._user_connections.clear()
+        self._channel_subscribers.clear()
+        return closed
+
     @property
     def active_connections(self) -> int:
         return len(self._all_connections)

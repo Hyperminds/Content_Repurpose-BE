@@ -22,13 +22,16 @@ from app.routes.social_presence_routes import router as social_presence_router
 from app.routes.trend_routes import router as trend_router
 from app.routes.dev_routes import router as dev_router
 from app.routes.metering_routes import router as metering_router
+from app.workspace import workspace_router
 from app.database import init_db
 from app.models.user_model import init_users_collection
 from app.services.scheduler_worker import start_scheduler, stop_scheduler
-from app.config import log_env, APP_NAME, APP_VERSION, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, APP_ENV, IS_LAMBDA
+from app.config import log_env, APP_NAME, APP_VERSION, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, APP_ENV, IS_LAMBDA, AUTO_SHUTDOWN_ENABLED
 from app.middleware.error_handler import ErrorHandlerMiddleware
 from app.middleware.rate_limiter import RateLimitMiddleware
 from app.middleware.metering_middleware import MeteringMiddleware
+from app.middleware.activity_middleware import ActivityMiddleware
+from app.middleware.shutdown_middleware import ShutdownMiddleware
 from app.services.metering_service import start_metering_worker, stop_metering_worker
 
 
@@ -57,7 +60,19 @@ async def lifespan(app: FastAPI):
     print(f"✓ MongoDB connected & indexes created")
     print(f"✓ Scheduler worker started")
     print(f"✓ Metering worker started")
+
+    # Automatic Backend Shutdown watcher — opt-in (see AUTO_SHUTDOWN_ENABLED).
+    # Only meaningful where an external always-on service can wake the instance
+    # back up, so it's off by default and never runs under Lambda.
+    shutdown_watcher = None
+    if AUTO_SHUTDOWN_ENABLED:
+        from app.workspace.shutdown import get_shutdown_watcher
+        shutdown_watcher = get_shutdown_watcher()
+        shutdown_watcher.start()
+
     yield
+    if shutdown_watcher:
+        await shutdown_watcher.stop()
     stop_scheduler()
     await stop_metering_worker()
 
@@ -83,9 +98,16 @@ app.add_middleware(
 )
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(ErrorHandlerMiddleware)
+# Activity tracking observes the final response to update last_activity.
+# Non-blocking (fire-and-forget write) so it adds no measurable latency.
+app.add_middleware(ActivityMiddleware)
 # Metering added last → outermost: it observes the final response (post error-handling)
 # and total request time without interfering with any business logic.
 app.add_middleware(MeteringMiddleware)
+# Shutdown admission control added last → truly outermost: during a complete
+# shutdown it 503s new requests before any other middleware runs, and it counts
+# in-flight requests so the orchestrator can drain them. (OPTIONS pass through.)
+app.add_middleware(ShutdownMiddleware)
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 app.include_router(auth_router)
@@ -109,6 +131,7 @@ app.include_router(social_presence_router)
 app.include_router(trend_router)
 app.include_router(dev_router)
 app.include_router(metering_router)
+app.include_router(workspace_router)
 
 
 # ── Health Check ──────────────────────────────────────────────────────────────
