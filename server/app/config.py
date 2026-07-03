@@ -70,6 +70,34 @@ LINKEDIN_REDIRECT_URI: str = os.getenv("LINKEDIN_REDIRECT_URI", "http://localhos
 # ── Frontend ──────────────────────────────────────────────────────────────────
 FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
+# ── Workspace / Sleep Decision Engine ─────────────────────────────────────────
+# How long the workspace must be idle (no API activity, no active work) before
+# it is allowed to enter Sleep. Configurable via env so ops can tune it per
+# environment without a code change. Default: 15 minutes.
+SLEEP_IDLE_TIMEOUT_SECONDS: int = int(os.getenv("SLEEP_IDLE_TIMEOUT_SECONDS", "900"))
+# Per-condition toggles — let ops disable a specific guard if needed.
+SLEEP_BLOCK_ON_WEBSOCKET: bool = os.getenv("SLEEP_BLOCK_ON_WEBSOCKET", "true").lower() == "true"
+SLEEP_BLOCK_ON_AI: bool = os.getenv("SLEEP_BLOCK_ON_AI", "true").lower() == "true"
+SLEEP_BLOCK_ON_PUBLISHING: bool = os.getenv("SLEEP_BLOCK_ON_PUBLISHING", "true").lower() == "true"
+SLEEP_BLOCK_ON_BACKGROUND_TASKS: bool = os.getenv("SLEEP_BLOCK_ON_BACKGROUND_TASKS", "true").lower() == "true"
+SLEEP_BLOCK_ON_UPLOADS: bool = os.getenv("SLEEP_BLOCK_ON_UPLOADS", "true").lower() == "true"
+
+# Which PowerController strategy backs the workspace sleep/wake actions.
+# One of: local | ec2 | docker | kubernetes | railway | render.
+# Only "local" is implemented (logs only); the rest are architecture stubs.
+POWER_CONTROLLER: str = os.getenv("POWER_CONTROLLER", "local").lower()
+
+# ── Automatic Backend Shutdown ────────────────────────────────────────────────
+# A periodic watcher evaluates the ShutdownDecisionEngine and, when idle+safe,
+# runs the ShutdownOrchestrator (complete shutdown, so the instance can be
+# stopped). DISABLED by default — enable only in a deployment where an external
+# always-on service can later wake the instance back up.
+AUTO_SHUTDOWN_ENABLED: bool = os.getenv("AUTO_SHUTDOWN_ENABLED", "false").lower() == "true"
+# How often (seconds) the watcher evaluates the shutdown decision.
+AUTO_SHUTDOWN_INTERVAL_SECONDS: int = int(os.getenv("AUTO_SHUTDOWN_INTERVAL_SECONDS", "60"))
+# Max time (seconds) to wait for in-flight HTTP requests to finish while draining.
+SHUTDOWN_DRAIN_TIMEOUT_SECONDS: int = int(os.getenv("SHUTDOWN_DRAIN_TIMEOUT_SECONDS", "30"))
+
 
 def get_env() -> str:
     return APP_ENV

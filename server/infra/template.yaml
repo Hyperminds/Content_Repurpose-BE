@@ -1,0 +1,415 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  TrendZZo Workspace Control — production serverless control plane. API Gateway
+  (HTTP API) + Lambda (wake/shutdown/status) reusing EC2PowerController, with
+  EventBridge Scheduler (idle shutdown), CloudWatch alarms + SNS, DLQ, X-Ray,
+  least-privilege IAM, throttling, and access logging.
+  NOTE: This is a SAM template; `AWS::Serverless-*` resources expand to plain
+  CloudFormation at deploy time (SAM IS CloudFormation).
+
+# ─────────────────────────────────────────────────────────────────────────────
+Parameters:
+  InstanceId:
+    Type: String
+    Description: Target EC2 instance id (i-…).
+    Default: "i-0219c11f642a8d920"
+    AllowedPattern: "^i-[0-9a-f]{8,17}$"
+  CorsAllowOrigin:
+    Type: String
+    Default: "https://trendzzo.hyperminds.tech"
+    Description: Allowed CORS origin — set to the exact frontend URL in production.
+  Stage:
+    Type: String
+    Default: prod
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+  AlarmEmail:
+    Type: String
+    Default: ""
+    Description: Optional email for CloudWatch alarm notifications (SNS).
+  ApiThrottleRateLimit:
+    Type: Number
+    Default: 20
+    Description: Steady-state requests/sec per route.
+  ApiThrottleBurstLimit:
+    Type: Number
+    Default: 40
+  IdleShutdownSchedule:
+    Type: String
+    Default: "rate(15 minutes)"
+    Description: EventBridge Scheduler cadence for the idle-shutdown check.
+  SchedulerState:
+    Type: String
+    Default: DISABLED
+    AllowedValues: [ENABLED, DISABLED]
+    Description: >
+      Keep DISABLED until the scheduled target is decision-gated (see docs).
+  LambdaTimeoutSeconds:
+    Type: Number
+    Default: 30
+  LambdaMemoryMb:
+    Type: Number
+    Default: 256
+
+Conditions:
+  HasAlarmEmail: !Not [!Equals [!Ref AlarmEmail, ""]]
+
+# ─────────────────────────────────────────────────────────────────────────────
+Globals:
+  Function:
+    Runtime: python3.11
+    Architectures: [arm64]
+    Timeout: !Ref LambdaTimeoutSeconds
+    MemorySize: !Ref LambdaMemoryMb
+    Tracing: Active                 # AWS X-Ray
+    Environment:
+      Variables:
+        INSTANCE_ID: !Ref InstanceId
+        CORS_ALLOW_ORIGIN: !Ref CorsAllowOrigin
+        POWER_CONTROLLER: ec2
+        APP_ENV: production
+        # AWS_REGION is injected by the Lambda runtime automatically.
+    DeadLetterQueue:               # captures async-invocation failures
+      Type: SQS
+      TargetArn: !GetAtt WorkspaceControlDLQ.Arn
+
+Resources:
+  # ── Dead Letter Queue (encrypted) ─────────────────────────────────────────
+  WorkspaceControlDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: trendzzo-workspace-control-dlq
+      MessageRetentionPeriod: 1209600   # 14 days
+      SqsManagedSseEnabled: true
+
+  # ── Alarm notifications ───────────────────────────────────────────────────
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: trendzzo-workspace-control-alarms
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlarmEmail
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  # ── IAM: Lambda execution role (least privilege) ──────────────────────────
+  WorkspaceControlRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: trendzzo-workspace-control-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+      Policies:
+        - PolicyName: ec2-power-control
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Start/Stop scoped to the single target instance ARN.
+              - Sid: StartStopTargetInstance
+                Effect: Allow
+                Action: [ec2:StartInstances, ec2:StopInstances]
+                Resource: !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}"
+              # DescribeInstances has no resource-level scoping (AWS limitation);
+              # constrain by region condition instead.
+              - Sid: DescribeInstances
+                Effect: Allow
+                Action: ec2:DescribeInstances
+                Resource: "*"
+                Condition:
+                  StringEquals: { "aws:RequestedRegion": !Ref "AWS::Region" }
+        - PolicyName: dlq-send
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt WorkspaceControlDLQ.Arn
+
+  # ── IAM: EventBridge Scheduler role (invoke shutdown Lambda) ──────────────
+  SchedulerInvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: trendzzo-workspace-scheduler-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: scheduler.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      Policies:
+        - PolicyName: invoke-shutdown
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt ShutdownFunction.Arn
+
+  # ── API Gateway (HTTP API): CORS, throttling, access logs ─────────────────
+  ApiAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/apigateway/trendzzo-workspace-control
+      RetentionInDays: !Ref LogRetentionDays
+
+  WorkspaceApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins: [!Ref CorsAllowOrigin]
+        AllowMethods: [GET, POST, OPTIONS]
+        AllowHeaders: [Content-Type, Authorization, X-Requested-With]
+        MaxAge: 600
+      DefaultRouteSettings:
+        ThrottlingRateLimit: !Ref ApiThrottleRateLimit
+        ThrottlingBurstLimit: !Ref ApiThrottleBurstLimit
+        DetailedMetricsEnabled: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiAccessLogGroup.Arn
+        Format: >-
+          { "requestId":"$context.requestId", "ip":"$context.identity.sourceIp",
+          "method":"$context.httpMethod", "route":"$context.routeKey",
+          "status":"$context.status", "latencyMs":"$context.responseLatency",
+          "integrationStatus":"$context.integrationStatus" }
+      # SECURITY: attach a JWT/Lambda authorizer before production — these
+      # endpoints control infrastructure and must not be public.
+
+  # ── Lambda functions ──────────────────────────────────────────────────────
+  WakeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: trendzzo-workspace-wake
+      Handler: app.aws.serverless.handlers.wake_handler
+      CodeUri: ../
+      Role: !GetAtt WorkspaceControlRole.Arn
+      Events:
+        Wake:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WorkspaceApi
+            Method: POST
+            Path: /workspace/wake
+
+  ShutdownFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: trendzzo-workspace-shutdown
+      Handler: app.aws.serverless.handlers.shutdown_handler
+      CodeUri: ../
+      Role: !GetAtt WorkspaceControlRole.Arn
+      # Async-invocation retry policy (used by the Scheduler path).
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
+        MaximumEventAgeInSeconds: 3600
+        DestinationConfig:
+          OnFailure:
+            Type: SQS
+            Destination: !GetAtt WorkspaceControlDLQ.Arn
+      Events:
+        Shutdown:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WorkspaceApi
+            Method: POST
+            Path: /workspace/shutdown
+
+  StatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: trendzzo-workspace-status
+      Handler: app.aws.serverless.handlers.status_handler
+      CodeUri: ../
+      Role: !GetAtt WorkspaceControlRole.Arn
+      Events:
+        Status:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref WorkspaceApi
+            Method: GET
+            Path: /workspace/status
+
+  # ── CloudWatch log groups (explicit retention) ────────────────────────────
+  WakeLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/trendzzo-workspace-wake
+      RetentionInDays: !Ref LogRetentionDays
+  ShutdownLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/trendzzo-workspace-shutdown
+      RetentionInDays: !Ref LogRetentionDays
+  StatusLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/trendzzo-workspace-status
+      RetentionInDays: !Ref LogRetentionDays
+
+  # ── EventBridge Scheduler: periodic idle-shutdown driver ──────────────────
+  # DISABLED by default. Before enabling, point it at a DECISION-GATED target
+  # (the shutdown handler should consult the idle decision engine before
+  # stopping) so it never stops an instance that is still doing work.
+  IdleShutdownSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: trendzzo-workspace-idle-shutdown
+      State: !Ref SchedulerState
+      ScheduleExpression: !Ref IdleShutdownSchedule
+      FlexibleTimeWindow: { Mode: "OFF" }
+      Target:
+        Arn: !GetAtt ShutdownFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: '{"source":"eventbridge-scheduler","reason":"scheduled-idle-check"}'
+        RetryPolicy:
+          MaximumRetryAttempts: 3
+          MaximumEventAgeInSeconds: 3600
+        DeadLetterConfig:
+          Arn: !GetAtt WorkspaceControlDLQ.Arn
+
+  # ── CloudWatch Alarms → SNS ───────────────────────────────────────────────
+  WakeErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: trendzzo-wake-errors
+      AlarmDescription: Wake Lambda reported errors.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref WakeFunction }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+
+  ShutdownErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: trendzzo-shutdown-errors
+      AlarmDescription: Shutdown Lambda reported errors.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref ShutdownFunction }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  StatusErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: trendzzo-status-errors
+      AlarmDescription: Status Lambda reported errors.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref StatusFunction }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  ControlThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: trendzzo-workspace-throttles
+      AlarmDescription: A workspace-control Lambda is being throttled.
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions: [{ Name: FunctionName, Value: !Ref ShutdownFunction }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  DLQMessagesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: trendzzo-workspace-dlq-not-empty
+      AlarmDescription: Messages landed on the control DLQ (failed invocations).
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{ Name: QueueName, Value: !GetAtt WorkspaceControlDLQ.QueueName }]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  Api5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: trendzzo-workspace-api-5xx
+      AlarmDescription: Elevated 5xx rate on the workspace control API.
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions:
+        - { Name: ApiId, Value: !Ref WorkspaceApi }
+        - { Name: Stage, Value: !Ref Stage }
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  ApiLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: trendzzo-workspace-api-latency
+      AlarmDescription: High p99 latency on the workspace control API.
+      Namespace: AWS/ApiGateway
+      MetricName: Latency
+      Dimensions:
+        - { Name: ApiId, Value: !Ref WorkspaceApi }
+        - { Name: Stage, Value: !Ref Stage }
+      ExtendedStatistic: p99
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 5000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+# ─────────────────────────────────────────────────────────────────────────────
+Outputs:
+  ApiBaseUrl:
+    Description: Base URL of the workspace control API.
+    Value: !Sub "https://${WorkspaceApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+  DLQUrl:
+    Description: Dead Letter Queue URL.
+    Value: !Ref WorkspaceControlDLQ
+  AlarmTopicArn:
+    Description: SNS topic for CloudWatch alarms.
+    Value: !Ref AlarmTopic
+  ExecutionRoleArn:
+    Description: Lambda execution role ARN.
+    Value: !GetAtt WorkspaceControlRole.Arn

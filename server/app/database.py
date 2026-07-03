@@ -183,6 +183,12 @@ async def init_db(create_indexes: bool = True):
         _safe_index(db["metering_events"], [("user_id", 1), ("timestamp", -1)]),
         _safe_index(db["metering_events"], "request_id"),
         _safe_index(db["metering_events"], [("exported", 1), ("timestamp", 1)]),
+
+        # ── User activity (last_activity tracking) ───────────────────────────
+        # One doc per user (keyed by _id); these support "recently active"
+        # lookups by org/time without scanning.
+        _safe_index(db["user_activity"], [("organization_id", 1), ("last_activity", -1)]),
+        _safe_index(db["user_activity"], [("user_id", 1)]),
     ]
 
     await asyncio.gather(*tasks)

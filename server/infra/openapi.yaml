@@ -1,0 +1,154 @@
+openapi: 3.0.3
+info:
+  title: TrendZZo Workspace Control API
+  version: "1.0.0"
+  description: >
+    Always-on control plane for the TrendZZo workspace EC2 instance. Backed by
+    Lambda + the shared EC2PowerController. Wakes/stops/queries the instance
+    independently of the main FastAPI backend (which may be stopped).
+
+servers:
+  - url: https://{apiId}.execute-api.{region}.amazonaws.com/{stage}
+    variables:
+      apiId: { default: "your-api-id" }
+      region: { default: "us-east-1" }
+      stage: { default: "prod" }
+
+paths:
+  /workspace/wake:
+    post:
+      operationId: wakeWorkspace
+      summary: Start (wake) the workspace instance
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceRequest" }
+      responses:
+        "200":
+          description: Wake accepted (fire-and-forget; readiness via /workspace/status)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WakeResponse" }
+        "4XX": { $ref: "#/components/responses/Error" }
+        "5XX": { $ref: "#/components/responses/Error" }
+      x-amazon-apigateway-integration: { $ref: "#/components/x-integrations/WakeLambda" }
+    options:
+      summary: CORS preflight
+      responses: { "204": { description: No Content } }
+      x-amazon-apigateway-integration: { $ref: "#/components/x-integrations/WakeLambda" }
+
+  /workspace/shutdown:
+    post:
+      operationId: shutdownWorkspace
+      summary: Stop (shut down) the workspace instance
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceRequest" }
+      responses:
+        "200":
+          description: Shutdown accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShutdownResponse" }
+        "4XX": { $ref: "#/components/responses/Error" }
+        "5XX": { $ref: "#/components/responses/Error" }
+      x-amazon-apigateway-integration: { $ref: "#/components/x-integrations/ShutdownLambda" }
+    options:
+      summary: CORS preflight
+      responses: { "204": { description: No Content } }
+      x-amazon-apigateway-integration: { $ref: "#/components/x-integrations/ShutdownLambda" }
+
+  /workspace/status:
+    get:
+      operationId: workspaceStatus
+      summary: Report the workspace instance status
+      responses:
+        "200":
+          description: Current instance status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusResponse" }
+        "4XX": { $ref: "#/components/responses/Error" }
+        "5XX": { $ref: "#/components/responses/Error" }
+      x-amazon-apigateway-integration: { $ref: "#/components/x-integrations/StatusLambda" }
+    options:
+      summary: CORS preflight
+      responses: { "204": { description: No Content } }
+      x-amazon-apigateway-integration: { $ref: "#/components/x-integrations/StatusLambda" }
+
+components:
+  schemas:
+    WorkspaceRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        instance_id:
+          type: string
+          pattern: "^i-[0-9a-f]{8,17}$"
+          description: Optional instance-id override; defaults to the configured instance.
+        reason:
+          type: string
+          description: Optional free-text reason (audit/logging).
+        force:
+          type: boolean
+          description: Shutdown only — bypass soft checks.
+    WakeResponse:
+      type: object
+      required: [status, instance_id, state]
+      properties:
+        status: { type: string, example: "starting" }
+        instance_id: { type: string, example: "i-0abc123def456789" }
+        state: { type: string, enum: [starting, running, stopping, stopped, unknown] }
+    ShutdownResponse:
+      type: object
+      required: [status, instance_id, state]
+      properties:
+        status: { type: string, example: "stopping" }
+        instance_id: { type: string, example: "i-0abc123def456789" }
+        state: { type: string, enum: [starting, running, stopping, stopped, unknown] }
+    StatusResponse:
+      type: object
+      required: [status, label, instance_id]
+      properties:
+        status: { type: string, enum: [starting, running, stopping, stopped, unknown] }
+        label: { type: string, example: "Running" }
+        instance_id: { type: string, example: "i-0abc123def456789" }
+    ErrorResponse:
+      type: object
+      required: [error, code, message]
+      properties:
+        error: { type: boolean, example: true }
+        code: { type: string, example: "invalid_instance_state" }
+        message: { type: string }
+
+  responses:
+    Error:
+      description: Structured error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  # Reusable API Gateway (HTTP API) Lambda-proxy integration snippets. The
+  # ${...Arn} placeholders are resolved by the SAM/CloudFormation template.
+  x-integrations:
+    WakeLambda:
+      type: aws_proxy
+      httpMethod: POST
+      payloadFormatVersion: "2.0"
+      uri:
+        Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WakeFunction.Arn}/invocations"
+    ShutdownLambda:
+      type: aws_proxy
+      httpMethod: POST
+      payloadFormatVersion: "2.0"
+      uri:
+        Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ShutdownFunction.Arn}/invocations"
+    StatusLambda:
+      type: aws_proxy
+      httpMethod: POST
+      payloadFormatVersion: "2.0"
+      uri:
+        Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${StatusFunction.Arn}/invocations"
