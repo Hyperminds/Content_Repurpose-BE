@@ -36,7 +36,7 @@ Parameters:
   ApiThrottleBurstLimit:
     Type: Number
     Default: 40
-  IdleShutdownSchedule:
+  IdleShutdownScheduleExpression:
     Type: String
     Default: "rate(15 minutes)"
     Description: EventBridge Scheduler cadence for the idle-shutdown check.
@@ -269,7 +269,7 @@ Resources:
     Properties:
       Name: trendzzo-workspace-idle-shutdown
       State: !Ref SchedulerState
-      ScheduleExpression: !Ref IdleShutdownSchedule
+      ScheduleExpression: !Ref IdleShutdownScheduleExpression
       FlexibleTimeWindow: { Mode: "OFF" }
       Target:
         Arn: !GetAtt ShutdownFunction.Arn
