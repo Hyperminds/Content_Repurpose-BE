@@ -45,7 +45,20 @@ _IGNORED_PREFIXES = (
 def _should_track(request: Request) -> bool:
     if request.method not in _TRACKED_METHODS:
         return False
-    return not request.url.path.startswith(_IGNORED_PREFIXES)
+    path = request.url.path
+    if path.startswith(_IGNORED_PREFIXES):
+        return False
+    # Ignore bot/scanner probes — these paths are never legitimate user activity
+    # and would keep the idle timer alive indefinitely.
+    _SCAN_PATTERNS = (
+        ".env", ".php", "config", "wp-", "admin", "login",
+        "next.config", "nuxt.config", "package.json", "craco",
+        "actuator", "phpinfo", ".git", "setup.php",
+    )
+    path_lower = path.lower()
+    if any(p in path_lower for p in _SCAN_PATTERNS):
+        return False
+    return True
 
 
 class ActivityMiddleware(BaseHTTPMiddleware):
@@ -56,19 +69,21 @@ class ActivityMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
 
-        # Only successful responses (2xx/3xx) count as activity.
+        # Only authenticated successful responses count as real activity.
+        # Bot/scanner requests get 404s and have no user_id — both conditions
+        # must be true so anonymous traffic never resets the idle timer.
         try:
             status_code = getattr(response, "status_code", 500)
             if status_code < 400:
                 identity = mu.extract_identity(request)
-                get_activity_service().track(
-                    user_id=identity["user_id"],
-                    organization_id=identity["organization_id"],
-                    path=request.url.path,
-                    method=request.method,
-                )
+                if identity["user_id"] is not None:
+                    get_activity_service().track(
+                        user_id=identity["user_id"],
+                        organization_id=identity["organization_id"],
+                        path=request.url.path,
+                        method=request.method,
+                    )
         except Exception:
-            # Never let activity tracking affect the response.
             pass
 
         return response
