@@ -90,7 +90,7 @@ class ConnectionManager:
                 dead.add(ws)
         self._all_connections -= dead
 
-    async def close_all(self, code: int = 1001, reason: str = "Workspace entering sleep") -> int:
+    async def close_all(self, code: int = 1001, reason: str = "Server shutting down") -> int:
         """
         Gracefully close every active WebSocket session and clear all registries.
 
