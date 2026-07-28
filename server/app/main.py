@@ -1,4 +1,4 @@
-from contextlib import asynccontextmanager      
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.content_routes import router as content_router
@@ -22,57 +22,27 @@ from app.routes.social_presence_routes import router as social_presence_router
 from app.routes.trend_routes import router as trend_router
 from app.routes.dev_routes import router as dev_router
 from app.routes.metering_routes import router as metering_router
-from app.workspace import workspace_router
 from app.database import init_db
 from app.models.user_model import init_users_collection
 from app.services.scheduler_worker import start_scheduler, stop_scheduler
-from app.config import log_env, APP_NAME, APP_VERSION, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, APP_ENV, IS_LAMBDA, AUTO_SHUTDOWN_ENABLED
+from app.config import log_env, APP_NAME, APP_VERSION, CORS_ORIGINS, CORS_ALLOW_CREDENTIALS, APP_ENV
 from app.middleware.error_handler import ErrorHandlerMiddleware
 from app.middleware.rate_limiter import RateLimitMiddleware
 from app.middleware.metering_middleware import MeteringMiddleware
-from app.middleware.activity_middleware import ActivityMiddleware
-from app.middleware.shutdown_middleware import ShutdownMiddleware
 from app.services.metering_service import start_metering_worker, stop_metering_worker
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Index creation is a one-time migration concern under Lambda — skip it on
-    # every cold start (run it via a migration job instead).
-    await init_db(create_indexes=not IS_LAMBDA)
+    await init_db(create_indexes=True)
     await init_users_collection()
-
-    if IS_LAMBDA:
-        # Long-running background workers (polling scheduler, in-process metering
-        # queue consumer) are incompatible with Lambda's short-lived, frozen
-        # execution model. In Lambda these responsibilities move to managed
-        # services (EventBridge Scheduler → publish trigger; metering → an
-        # external sink). See LAMBDA.md.
-        log_env()
-        print("⚡ Lambda runtime: background workers disabled (use EventBridge + external sinks)")
-        yield
-        return
-
-    # ── Local / server (uvicorn) runtime — full behaviour preserved ──────────
     start_scheduler()
     start_metering_worker()
     log_env()
     print(f"✓ MongoDB connected & indexes created")
     print(f"✓ Scheduler worker started")
     print(f"✓ Metering worker started")
-
-    # Automatic Backend Shutdown watcher — opt-in (see AUTO_SHUTDOWN_ENABLED).
-    # Only meaningful where an external always-on service can wake the instance
-    # back up, so it's off by default and never runs under Lambda.
-    shutdown_watcher = None
-    if AUTO_SHUTDOWN_ENABLED:
-        from app.workspace.shutdown import get_shutdown_watcher
-        shutdown_watcher = get_shutdown_watcher()
-        shutdown_watcher.start()
-
     yield
-    if shutdown_watcher:
-        await shutdown_watcher.stop()
     stop_scheduler()
     await stop_metering_worker()
 
@@ -88,7 +58,6 @@ app = FastAPI(
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 # Order matters: last added = outermost (runs first on request)
-# CORS must be outermost so preflight OPTIONS requests are handled before anything else
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -98,16 +67,7 @@ app.add_middleware(
 )
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(ErrorHandlerMiddleware)
-# Activity tracking observes the final response to update last_activity.
-# Non-blocking (fire-and-forget write) so it adds no measurable latency.
-app.add_middleware(ActivityMiddleware)
-# Metering added last → outermost: it observes the final response (post error-handling)
-# and total request time without interfering with any business logic.
 app.add_middleware(MeteringMiddleware)
-# Shutdown admission control added last → truly outermost: during a complete
-# shutdown it 503s new requests before any other middleware runs, and it counts
-# in-flight requests so the orchestrator can drain them. (OPTIONS pass through.)
-app.add_middleware(ShutdownMiddleware)
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 app.include_router(auth_router)
@@ -131,7 +91,6 @@ app.include_router(social_presence_router)
 app.include_router(trend_router)
 app.include_router(dev_router)
 app.include_router(metering_router)
-app.include_router(workspace_router)
 
 
 # ── Health Check ──────────────────────────────────────────────────────────────
@@ -142,30 +101,23 @@ def home():
 
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint for monitoring and deployment readiness probes.
-    Checks MongoDB connectivity and returns system status.
-    """
     from app.database import client as mongo_client
     from datetime import datetime, timezone
 
     checks = {"mongodb": "unknown", "scheduler": "unknown", "ai_service": "unknown", "websockets": "unknown"}
 
-    # MongoDB check
     try:
         await mongo_client.admin.command("ping")
         checks["mongodb"] = "healthy"
     except Exception as e:
         checks["mongodb"] = f"unhealthy: {str(e)}"
 
-    # Scheduler check
     try:
         from app.services.scheduler_worker import _running as scheduler_running
         checks["scheduler"] = "running" if scheduler_running else "stopped"
     except Exception:
         checks["scheduler"] = "unknown"
 
-    # AI service check
     from app.config import OPENROUTER_API_KEY, USE_MOCK
     if USE_MOCK:
         checks["ai_service"] = "mock_mode"
@@ -174,7 +126,6 @@ async def health_check():
     else:
         checks["ai_service"] = "not_configured"
 
-    # WebSocket check
     from app.ws.manager import ws_manager
     checks["websockets"] = f"active ({ws_manager.active_connections} connections)"
 
@@ -198,10 +149,6 @@ from fastapi import WebSocket, WebSocketDisconnect, Query
 
 @app.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str, channels: str = Query(default="dashboard")):
-    """
-    Main WebSocket endpoint for realtime updates.
-    Connect with: ws://localhost:8000/ws/{user_id}?channels=dashboard,notifications
-    """
     from app.ws.manager import ws_manager
     from app.services.logger import log
 
@@ -211,9 +158,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, channels: str =
 
     try:
         while True:
-            # Keep connection alive, handle incoming messages
             data = await websocket.receive_text()
-            # Client can send ping/subscribe messages
             try:
                 import json
                 msg = json.loads(data)
@@ -235,7 +180,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, channels: str =
 # ── System Stats (admin) ──────────────────────────────────────────────────────
 @app.get("/system/stats")
 async def system_stats():
-    """System-level stats for monitoring. Available in dev/staging only."""
     if APP_ENV == "production":
         from fastapi import HTTPException
         raise HTTPException(status_code=403, detail="Not available in production")
