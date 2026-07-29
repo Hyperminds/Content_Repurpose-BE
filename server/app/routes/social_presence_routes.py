@@ -5,7 +5,7 @@ Isolated module — does not touch campaign or other existing systems.
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from app.services.social_presence_service import (
     run_social_presence_analysis,
     analyze_content_batch,
@@ -49,7 +49,7 @@ class ContentItem(BaseModel):
 
 
 class ContentAnalyzeRequest(BaseModel):
-    items: list[ContentItem]
+    items: List[ContentItem]
 
 
 @router.post("/analyze")
@@ -168,12 +168,12 @@ class CompetitorProfile(BaseModel):
 
 class CompetitorAnalysisRequest(BaseModel):
     user_profile: dict
-    competitors: list[CompetitorProfile]
+    competitors: List[CompetitorProfile]
 
 
 class GrowthForecastRequest(BaseModel):
     profile_data: dict
-    platforms: list[str]
+    platforms: List[str]
 
 
 class BrandPositioningRequest(BaseModel):
@@ -182,7 +182,7 @@ class BrandPositioningRequest(BaseModel):
 
 class ContentStrategyRequest(BaseModel):
     profile_data: dict
-    platforms: list[str]
+    platforms: List[str]
 
 
 class BioOptimizationRequest(BaseModel):
