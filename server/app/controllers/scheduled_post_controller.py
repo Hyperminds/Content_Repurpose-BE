@@ -1,3 +1,4 @@
+from typing import Optional
 from datetime import datetime, timezone
 from bson import ObjectId
 from app.database import scheduled_posts_collection
@@ -66,7 +67,7 @@ async def create_scheduled_post(data: dict, user_id: str):
     return serialize_post(doc)
 
 
-async def get_scheduled_posts(user_id: str, status: str | None = None):
+async def get_scheduled_posts(user_id: str, status: Optional[str] = None):
     """Get all scheduled posts for a user, optionally filtered by status."""
     query = {"user_id": user_id}
     if status:

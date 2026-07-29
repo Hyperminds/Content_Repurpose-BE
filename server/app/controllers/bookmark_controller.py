@@ -1,3 +1,4 @@
+from typing import Optional
 from datetime import datetime, timezone
 from bson import ObjectId
 from app.database import bookmarks_collection
@@ -32,7 +33,7 @@ async def create_bookmark(data: dict, user_id: str = None):
     return serialize_bookmark(doc)
 
 
-async def get_bookmarks(platform: str | None, user_id: str = None):
+async def get_bookmarks(platform: Optional[str], user_id: str = None):
     query = {}
     if user_id:
         query["user_id"] = user_id

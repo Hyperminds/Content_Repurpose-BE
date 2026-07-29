@@ -1,3 +1,4 @@
+from typing import Optional
 from datetime import datetime, timezone
 from bson import ObjectId
 from app.database import history_collection
@@ -30,7 +31,7 @@ async def add_history_entry(input_text: str, generated_data: dict, images: dict,
     return serialize_history(doc)
 
 
-async def get_history(start_date: str | None, end_date: str | None, limit: int, offset: int, user_id: str = None):
+async def get_history(start_date: Optional[str], end_date: Optional[str], limit: int, offset: int, user_id: str = None):
     query = {}
     if user_id:
         query["user_id"] = user_id
