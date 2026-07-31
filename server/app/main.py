@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI 
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes.content_routes import router as content_router
 from app.routes.bookmark_routes import router as bookmark_router
