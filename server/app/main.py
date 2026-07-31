@@ -60,8 +60,14 @@ app = FastAPI(
 # Order matters: last added = outermost (runs first on request)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=CORS_ALLOW_CREDENTIALS,
+    allow_origins=[
+        "https://trendzzo.hyperminds.tech",
+        "https://trendzzo-be.xyz-app.com",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        *CORS_ORIGINS,  # also include anything set in .env
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
