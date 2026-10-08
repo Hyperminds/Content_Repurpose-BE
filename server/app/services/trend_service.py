@@ -245,7 +245,8 @@ async def run_trend_analysis(category: str, platforms: list, search_query: str =
         platforms = ["twitter", "reddit", "linkedin", "instagram", "medium", "quora"]
 
     # ── DEVELOPMENT MODE ─────────────────────────────────────────────────────
-    if USE_MOCK:
+    from app.config import get_use_mock
+    if get_use_mock():
         return get_mock_full_trend_analysis(category, platforms, search_query)
 
     # ── PRODUCTION MODE ──────────────────────────────────────────────────────

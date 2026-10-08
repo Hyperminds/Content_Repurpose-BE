@@ -34,6 +34,7 @@ _PLATFORM_POST_ID_PREFIXES = {
     "medium":   "medium_post_",
     "meta":     "fb_post_",
     "quora":    "quora_ans_",
+    "threads":  "threads_post_",
 }
 
 

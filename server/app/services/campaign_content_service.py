@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from app.database import db
+from app.services.logger import log
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -158,6 +159,33 @@ IMPORTANT:
     }
 
 
+async def generate_day_image(content_text: str, platform: str) -> str:
+    """
+    Generate (or mock) ONE platform-specific image for a campaign day and return
+    its stored URL, or "" on any failure.
+
+    Respects the SAME mock toggle as content generation: in mock mode it returns
+    a deterministic stock (picsum) URL and makes no API call; in real mode it
+    calls the existing OpenRouter image generator and stores via the existing
+    media storage. Never raises — a failed image must not break content gen.
+    """
+    try:
+        from app.config import get_use_mock
+
+        if get_use_mock():
+            import hashlib
+            seed = int(hashlib.md5(f"{platform}{content_text}".encode()).hexdigest()[:8], 16)
+            return f"https://picsum.photos/seed/{seed}/1024/1024"
+
+        from app.controllers.image_generation_controller import generate_and_store, build_image_prompt
+        prompt = build_image_prompt((content_text or platform)[:600], platform=platform)
+        result = await generate_and_store(prompt=prompt, platform=platform)
+        return result.get("image_url") or ""
+    except Exception as e:
+        log.warning("Campaign day image generation failed", platform=platform, err=type(e).__name__)
+        return ""
+
+
 async def save_day_content(day_id: str, campaign_id: str, user_id: str, content_data: dict) -> dict:
     """Save or update generated content for a campaign day."""
     now = datetime.now(timezone.utc)
@@ -233,20 +261,42 @@ def serialize_content(doc: dict) -> dict:
         "engagement_reason": doc.get("engagement_reason", ""),
         "optimization_tips": doc.get("optimization_tips", []),
         "best_posting_time": doc.get("best_posting_time", ""),
+        # Preloaded, platform-specific AI image for this day's post (if any).
+        "image_url": doc.get("image_url", ""),
         "status": doc.get("status", "draft"),
         "generated_at": doc.get("generated_at").isoformat() if doc.get("generated_at") else None,
         "updated_at": doc.get("updated_at").isoformat() if doc.get("updated_at") else None,
     }
 
 
+def _derive_missed(date_str: str, status: str) -> bool:
+    """
+    A day is 'missed' when its scheduled date has already passed and it was never
+    posted (status not 'done') and not intentionally 'skipped'. Derived — there
+    is no per-day scheduled time, only the date ('%Y-%m-%d'), so this compares
+    the date against today (UTC), mirroring serialize_campaign's naive-UTC math.
+    """
+    if not date_str or status in ("done", "skipped"):
+        return False
+    try:
+        day_dt = datetime.strptime(date_str, "%Y-%m-%d")
+    except Exception:
+        return False
+    today = datetime.now(timezone.utc).replace(tzinfo=None, hour=0, minute=0, second=0, microsecond=0)
+    return day_dt < today
+
+
 def serialize_day(doc: dict) -> dict:
     if not doc:
         return None
+    status = doc.get("status", "planned")
+    date_str = doc.get("date")
+    missed = _derive_missed(date_str, status)
     return {
         "id": str(doc["_id"]),
         "campaign_id": doc.get("campaign_id"),
         "day_number": doc.get("day_number"),
-        "date": doc.get("date"),
+        "date": date_str,
         "week_number": doc.get("week_number"),
         "week_theme": doc.get("week_theme"),
         "platform": doc.get("platform"),
@@ -256,5 +306,9 @@ def serialize_day(doc: dict) -> dict:
         "cta": doc.get("cta"),
         "content_pillar": doc.get("content_pillar"),
         "ai_reasoning": doc.get("ai_reasoning"),
-        "status": doc.get("status", "planned"),
+        "status": status,
+        # Derived scheduling signals (computed, not stored — no publish signal
+        # exists to flip stored status, so the frontend reads these).
+        "missed": missed,
+        "effective_status": "missed" if missed else status,
     }

@@ -23,7 +23,8 @@ class BasePlatformAdapter(ABC):
         Publish content to the platform.
         In development mode, returns mock result without any real API call.
         """
-        if USE_MOCK:
+        from app.config import get_use_mock
+        if get_use_mock():
             # Check for error simulation flags
             from app.services.dev_simulator import get_simulation_flags
             flags = get_simulation_flags()
@@ -168,6 +169,35 @@ class QuoraAdapter(BasePlatformAdapter):
 
 # ============ ADAPTER REGISTRY ============ #
 
+class ThreadsAdapter(BasePlatformAdapter):
+    platform_name = "threads"
+    posting_mode = "manual_assisted"
+
+    async def _publish_post_real(self, user_id: str, content: str, media_urls: list = None) -> dict:
+        # Threads API integration will be implemented in Phase 2
+        # (requires Instagram OAuth + Threads Publishing API)
+        return {"success": False, "error": "Threads API publishing not yet configured."}
+
+    def validate_content(self, content: str) -> dict:
+        errors = []
+        if not content.strip():
+            errors.append("Content cannot be empty")
+        if len(content) > 500:
+            errors.append("Content exceeds 500 character limit for Threads")
+        return {"valid": len(errors) == 0, "errors": errors}
+
+    def generate_manual_publish_payload(self, content: str, media_urls: list = None) -> dict:
+        return {
+            "platform": "threads",
+            "content": content,
+            "media_urls": media_urls or [],
+            "platform_url": "https://www.threads.net",
+            "instructions": "1. Open Threads\n2. Tap the compose button\n3. Paste the content\n4. Post!",
+        }
+
+
+# ============ ADAPTER REGISTRY ============ #
+
 _adapters = {
     "linkedin": LinkedInAdapter(),
     "instagram": InstagramAdapter(),
@@ -176,6 +206,7 @@ _adapters = {
     "medium": MediumAdapter(),
     "meta": MetaAdapter(),
     "quora": QuoraAdapter(),
+    "threads": ThreadsAdapter(),
 }
 
 

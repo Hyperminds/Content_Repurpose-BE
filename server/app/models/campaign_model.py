@@ -15,6 +15,7 @@ class CampaignStatus(str, Enum):
     paused = "paused"
     completed = "completed"
     cancelled = "cancelled"
+    failed = "failed"
 
 
 class CampaignType(str, Enum):

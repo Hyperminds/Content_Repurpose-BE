@@ -49,6 +49,14 @@ PLATFORM_CONFIGS = {
         "token_url": "",
         "mode": "manual_assisted",
     },
+    "threads": {
+        "client_id": os.getenv("THREADS_CLIENT_ID", ""),
+        "client_secret": os.getenv("THREADS_CLIENT_SECRET", ""),
+        "redirect_uri": os.getenv("THREADS_REDIRECT_URI", "http://localhost:8000/auth/threads/callback"),
+        "auth_url": "https://threads.net/oauth/authorize",
+        "token_url": "https://graph.threads.net/oauth/access_token",
+        "mode": "manual_assisted",
+    },
 }
 
 
@@ -219,7 +227,7 @@ async def get_all_connections_status(user_id: str) -> dict:
     linkedin = await get_linkedin_connection(user_id)
 
     platforms = {}
-    for platform in ["linkedin", "twitter", "reddit", "medium", "quora", "instagram", "meta"]:
+    for platform in ["linkedin", "twitter", "reddit", "medium", "quora", "instagram", "meta", "threads"]:
         if platform == "linkedin":
             platforms[platform] = {
                 "connected": linkedin is not None,

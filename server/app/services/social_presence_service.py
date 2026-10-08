@@ -254,7 +254,8 @@ async def run_social_presence_analysis(profiles_data: dict) -> dict:
         return {"error": "No platform data provided", "platform_analyses": [], "overall": None}
 
     # ── DEVELOPMENT MODE ─────────────────────────────────────────────────────
-    if USE_MOCK:
+    from app.config import get_use_mock
+    if get_use_mock():
         return get_mock_full_analysis(profiles_data)
 
     # ── PRODUCTION MODE ──────────────────────────────────────────────────────

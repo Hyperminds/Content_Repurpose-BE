@@ -22,6 +22,7 @@ import cloudinary.uploader
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.config import USE_MOCK
+from app.services.logger import log
 
 # ── Cloudinary config (already used for uploads elsewhere) ───────────────────
 cloudinary.config(
@@ -87,6 +88,11 @@ PLATFORM_SPECS = {
         "width": 1200, "height": 630,
         "style": "clean, knowledge-focused, authoritative, educational infographic style, "
                  "professional and credible, neutral background, clear visual information",
+    },
+    "threads": {
+        "width": 1080, "height": 1350,
+        "style": "authentic, casual, modern, conversational social aesthetic, "
+                 "clean monochrome-leaning palette, candid and human, mobile-native feel",
     },
 }
 
@@ -228,29 +234,62 @@ async def _generate_one(platform: str, content_text: str) -> str:
         return fallback
 
 
+# ── Stock fallback ────────────────────────────────────────────────────────────
+def _stock_images(content_text: str) -> dict:
+    """Deterministic picsum stock image per platform (safe fallback)."""
+    platforms = list(PLATFORM_SPECS.keys())
+    seed = int(hashlib.md5(content_text.encode()).hexdigest()[:8], 16)
+    return {
+        p: f"https://picsum.photos/seed/{seed + i + 1}"
+           f"/{PLATFORM_SPECS[p]['width']}/{PLATFORM_SPECS[p]['height']}"
+        for i, p in enumerate(platforms)
+    }
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 async def generate_platform_images(content_text: str) -> dict:
     """
-    Generate content-specific images for all 7 platforms in parallel.
+    Auto-generate a REAL, PLATFORM-SPECIFIC AI image for every platform from the
+    generated content, in PARALLEL, and return {platform: image_url}.
 
-    In mock mode returns deterministic picsum URLs instantly.
-    In production calls Bedrock for each platform concurrently.
+    - Each platform gets a prompt built from the content + that platform's
+      visual style (PLATFORM_SPECS) and its natural aspect ratio, so images are
+      relevant to each platform (LinkedIn corporate, Instagram vibrant, etc.).
+    - Images are generated concurrently via the OpenRouter image generator and
+      stored through Trendzzo's existing media storage (Cloudinary/local).
+    - Gated by ENABLE_AI_IMAGE_GENERATION. When disabled, or OpenRouter is not
+      configured, or a given platform's generation fails, that platform falls
+      back to a deterministic STOCK (picsum) image so /generate never breaks.
+
+    Output shape is unchanged: {platform: image_url} keyed by PLATFORM_SPECS.
     """
+    from app.config import ENABLE_AI_IMAGE_GENERATION, OPENROUTER_API_KEY, get_use_mock
+
+    stock = _stock_images(content_text)
+    # Follow the SAME runtime toggle as content generation: when mock mode is ON
+    # (toggle OFF = mock data), return stock/mock images and make NO real API
+    # calls — exactly like get_mock_content() for captions. Also fall back to
+    # stock if the feature flag is off or OpenRouter isn't configured.
+    if get_use_mock() or not ENABLE_AI_IMAGE_GENERATION or not OPENROUTER_API_KEY:
+        return stock
+
+    # Import here to avoid a circular import at module load.
+    from app.controllers.image_generation_controller import generate_and_store, build_image_prompt
+
     platforms = list(PLATFORM_SPECS.keys())
 
-    if USE_MOCK or not AWS_ACCESS_KEY_ID or not AWS_SECRET_KEY:
-        # Deterministic fallback — same content always same images
-        seed = int(hashlib.md5(content_text.encode()).hexdigest()[:8], 16)
-        return {
-            p: f"https://picsum.photos/seed/{seed + i + 1}"
-               f"/{PLATFORM_SPECS[p]['width']}/{PLATFORM_SPECS[p]['height']}"
-            for i, p in enumerate(platforms)
-        }
+    async def _one(platform: str) -> str:
+        try:
+            prompt = build_image_prompt(content_text, platform=platform)
+            out = await generate_and_store(prompt=prompt, platform=platform)
+            return out.get("image_url") or stock[platform]
+        except Exception as e:
+            # Per-platform fail-safe: never break the batch; use stock.
+            log.warning("Auto image generation failed", platform=platform, err=type(e).__name__)
+            return stock[platform]
 
-    # Generate all platforms concurrently
-    results = await asyncio.gather(
-        *[_generate_one(p, content_text) for p in platforms],
-        return_exceptions=False,
-    )
-
-    return dict(zip(platforms, results))
+    results = await asyncio.gather(*[_one(p) for p in platforms], return_exceptions=True)
+    out = {}
+    for p, r in zip(platforms, results):
+        out[p] = r if isinstance(r, str) else stock[p]
+    return out

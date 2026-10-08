@@ -15,3 +15,11 @@ tzdata>=2024.1
 python-multipart>=0.0.6
 cloudinary==1.40.0
 boto3>=1.34.0
+cryptography>=42.0.0
+
+# ── Optional: Hermes Reddit user-assisted browser automation ─────────────────
+# Only needed when ENABLE_HERMES_PROVIDER=true. Playwright is imported lazily,
+# so the app runs fine without it installed. To enable the Reddit workflow:
+#   pip install playwright>=1.44.0
+#   python -m playwright install chromium
+# playwright>=1.44.0
