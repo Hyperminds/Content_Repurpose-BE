@@ -103,11 +103,22 @@ class PlaywrightHermesAdapter:
         os.makedirs(self._profile_dir, exist_ok=True)
         self._pw = await async_playwright().start()
         try:
+            # Chromium launch flags for server/container environments. A headless
+            # host — especially running as root or inside a container — needs
+            # --no-sandbox or Chromium dies immediately on launch
+            # (TargetClosedError). --disable-dev-shm-usage avoids crashes caused
+            # by a small /dev/shm in containers. These are enabled only when
+            # running headless (i.e. on a server), so local headful development
+            # — where the sandbox works and is desirable — is unaffected.
+            launch_args = (
+                ["--no-sandbox", "--disable-dev-shm-usage"] if self._headless else []
+            )
             # Persistent context = the profile dir holds cookies/session so an
             # authenticated Reddit login persists across prepare/confirm.
             self._context = await self._pw.chromium.launch_persistent_context(
                 self._profile_dir,
                 headless=self._headless,
+                args=launch_args,
             )
             self._context.set_default_timeout(_ms(None, HERMES_ACTION_TIMEOUT))
             pages = self._context.pages
