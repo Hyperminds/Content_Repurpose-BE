@@ -1,7 +1,14 @@
 venv/
 __pycache__/
 .env
+app/.env
+.mockstate
+app/.mockstate
 node_modules/
+
+# Hermes user-assisted browser profiles (dev only). Contains browser session
+# data — must NEVER be committed. Covers HERMES_BROWSER_PROFILE_DIR default.
+.local/
 
 
 *.code-workspace

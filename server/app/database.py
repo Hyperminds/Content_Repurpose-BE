@@ -131,6 +131,8 @@ async def init_db(create_indexes: bool = True):
         _safe_index(db["post_history"], [("status", 1), ("scheduled_at", 1)]),
         _safe_index(db["post_history"], [("user_id", 1), ("created_at", -1)]),
         _safe_index(db["post_history"], [("user_id", 1), ("platform", 1), ("status", 1)]),
+        # Retry worker: find failed posts eligible for retry
+        _safe_index(db["post_history"], [("status", 1), ("next_retry_at", 1)]),
 
         # ── Users ────────────────────────────────────────────────────────────
         _safe_index(db["users"], "email", unique=True),
@@ -154,6 +156,11 @@ async def init_db(create_indexes: bool = True):
         # ── Connected accounts ───────────────────────────────────────────────
         _safe_index(db["connected_accounts"], [("user_id", 1), ("platform", 1)]),
         _safe_index(db["connected_accounts"], "platform_user_id"),
+        # Token refresh worker: find tokens expiring soon
+        _safe_index(db["connected_accounts"], [("status", 1), ("token_expires_at", 1)]),
+
+        # ── Publishing rate limits ───────────────────────────────────────────
+        _safe_index(db["publishing_rate_limits"], [("user_id", 1), ("platform", 1), ("date", 1)], unique=True),
 
         # ── Notifications ────────────────────────────────────────────────────
         # Matches the real queries: count/list by (user_id, status="unread").
@@ -189,6 +196,36 @@ async def init_db(create_indexes: bool = True):
         # lookups by org/time without scanning.
         _safe_index(db["user_activity"], [("organization_id", 1), ("last_activity", -1)]),
         _safe_index(db["user_activity"], [("user_id", 1)]),
+
+        # ── Social Publishing Engine ─────────────────────────────────────────
+        _safe_index(db["sp_social_accounts"], [("tenant_id", 1), ("platform", 1)]),
+        _safe_index(db["sp_social_accounts"], [("tenant_id", 1), ("is_active", 1)]),
+
+        _safe_index(db["sp_social_posts"], [("tenant_id", 1), ("created_at", -1)]),
+        _safe_index(db["sp_social_posts"], [("tenant_id", 1), ("status", 1)]),
+        _safe_index(db["sp_social_posts"], [("status", 1), ("scheduled_at", 1)]),
+        _safe_index(db["sp_social_posts"], [("account_id", 1), ("status", 1)]),
+
+        _safe_index(db["sp_publishing_jobs"], [("tenant_id", 1), ("post_id", 1)]),
+        _safe_index(db["sp_publishing_jobs"], [("post_id", 1), ("created_at", -1)]),
+
+        # OAuth state tokens (TTL index for automatic cleanup)
+        _safe_index(db["sp_oauth_states"], "state_token", unique=True),
+        _safe_index(db["sp_oauth_states"], "expires_at", expireAfterSeconds=0),
+
+        # ── Job queue ────────────────────────────────────────────────────────
+        _safe_index(db["sp_job_queue"], "idempotency_key", unique=True),
+        _safe_index(db["sp_job_queue"], [("status", 1), ("created_at", 1)]),
+        _safe_index(db["sp_job_queue"], [("status", 1), ("next_retry_at", 1)]),
+        _safe_index(db["sp_job_queue"], [("status", 1), ("locked_at", 1)]),
+        _safe_index(db["sp_job_queue"], [("tenant_id", 1), ("post_id", 1)]),
+
+        # ── Agent plans ──────────────────────────────────────────────────────
+        _safe_index(db["sp_plans"], "plan_id", unique=True),
+        _safe_index(db["sp_plans"], [("tenant_id", 1), ("created_at", -1)]),
+
+        # ── Rate limits ──────────────────────────────────────────────────────
+        _safe_index(db["sp_rate_limits"], [("tenant_id", 1), ("platform", 1), ("date", 1)], unique=True),
     ]
 
     await asyncio.gather(*tasks)

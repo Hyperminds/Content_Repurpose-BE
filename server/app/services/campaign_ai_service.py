@@ -225,13 +225,42 @@ def serialize_day(doc: dict) -> dict:
 
 
 async def get_campaign_days(campaign_id: str, week: int = None) -> list:
-    """Get campaign days, optionally filtered by week."""
+    """
+    Get campaign days, optionally filtered by week.
+
+    Each day is enriched with:
+      - the preloaded AI image_url (from its generated content, if any),
+      - a derived `missed` flag + `effective_status` (date passed, not posted),
+    so the feed can show the image and a "Missed" badge without extra requests.
+    """
     query = {"campaign_id": campaign_id}
     if week:
         query["week_number"] = week
     cursor = campaign_days_collection.find(query).sort("day_number", 1)
     docs = await cursor.to_list(length=500)
-    return [serialize_day(doc) for doc in docs]
+
+    # Batch-load generated content for these days (image_url + content status).
+    from app.database import db as _db
+    from app.services.campaign_content_service import _derive_missed
+    content_col = _db["campaign_content"]
+    day_ids = [str(d["_id"]) for d in docs]
+    content_by_day = {}
+    if day_ids:
+        async for c in content_col.find({"day_id": {"$in": day_ids}}):
+            content_by_day[c["day_id"]] = c
+
+    out = []
+    for doc in docs:
+        day = serialize_day(doc)
+        did = day["id"]
+        c = content_by_day.get(did)
+        day["image_url"] = (c or {}).get("image_url", "") if c else ""
+        day["has_content"] = bool(c)
+        missed = _derive_missed(day.get("date"), day.get("status", "planned"))
+        day["missed"] = missed
+        day["effective_status"] = "missed" if missed else day.get("status", "planned")
+        out.append(day)
+    return out
 
 
 async def get_campaign_weeks(campaign_id: str) -> list:

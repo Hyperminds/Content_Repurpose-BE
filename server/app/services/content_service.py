@@ -107,6 +107,14 @@ def build_system_prompt(platform, settings, platform_prompts):
     if custom_instructions.strip():
         system_parts.append(f"Additional instructions: {custom_instructions}")
 
+    # A per-regenerate instruction is treated as a high-priority rewrite directive.
+    regenerate_instruction = settings.get("regenerateInstruction", "")
+    if regenerate_instruction.strip():
+        system_parts.append(
+            "IMPORTANT: The user is regenerating this content and wants you to apply "
+            f"this instruction above all else: {regenerate_instruction.strip()}"
+        )
+
     if platform_custom_prompt.strip():
         system_parts.append(
             f"Platform-specific instructions from user: {platform_custom_prompt}"
@@ -457,6 +465,45 @@ Source Content:
     return response.choices[0].message.content
 
 
+async def generate_threads(source_content, settings, platform_prompts):
+
+    system_prompt = build_system_prompt("threads", settings, platform_prompts)
+    temperature = get_temperature(settings.get("creativity", 7))
+
+    prompt = f"""
+Analyze the source content below and craft a post for Threads (Meta's text-based conversation app).
+
+STRUCTURE:
+- Open with a strong, casual hook in the first line — Threads rewards authenticity over polish.
+- Keep it conversational and human, like talking to a friend who's smart.
+- 1-3 short paragraphs, with natural line breaks for readability.
+- End with a light question or prompt that invites replies (Threads is conversation-first).
+
+REQUIREMENTS:
+- Under 500 characters total (Threads' post limit).
+- No corporate/marketing tone — sound like a real person, not a brand.
+- At most 1-2 relevant hashtags, and only if they feel natural.
+- No links in the body (Threads deprioritizes them).
+- Prioritize replies and reshares — the algorithm favors conversation.
+
+Source Content:
+{source_content}
+"""
+
+    response = await client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=temperature,
+        max_tokens=400
+    )
+
+    _record_usage("threads", response.usage)
+    return response.choices[0].message.content
+
+
 # ---------------- MAIN FUNCTION ---------------- #
 
 async def generate_text_content(source_content, settings=None, platform_prompts=None, model_id: str = None):
@@ -474,13 +521,14 @@ async def generate_text_content(source_content, settings=None, platform_prompts=
     MODEL = active_model
 
     # ── DEVELOPMENT MODE: return mock content instantly ──────────────────────
-    if USE_MOCK:
+    from app.config import get_use_mock
+    if get_use_mock():
         MODEL = original_model
         return get_mock_content(source_content, settings, platform_prompts)
 
     # ── PRODUCTION MODE: call real AI APIs ───────────────────────────────────
     try:
-        linkedin, twitter, instagram, reddit, medium, meta, quora = await asyncio.gather(
+        linkedin, twitter, instagram, reddit, medium, meta, quora, threads = await asyncio.gather(
             generate_linkedin(source_content, settings, platform_prompts),
             generate_twitter(source_content, settings, platform_prompts),
             generate_instagram(source_content, settings, platform_prompts),
@@ -488,10 +536,12 @@ async def generate_text_content(source_content, settings=None, platform_prompts=
             generate_medium(source_content, settings, platform_prompts),
             generate_meta(source_content, settings, platform_prompts),
             generate_quora(source_content, settings, platform_prompts),
+            generate_threads(source_content, settings, platform_prompts),
         )
         return {
             "linkedin": linkedin, "twitter": twitter, "instagram": instagram,
             "reddit": reddit, "medium": medium, "meta": meta, "quora": quora,
+            "threads": threads,
         }
 
     except Exception as e:
@@ -501,5 +551,58 @@ async def generate_text_content(source_content, settings=None, platform_prompts=
         print("==========================================")
         return None
 
+    finally:
+        MODEL = original_model
+
+
+# ---------------- SINGLE-PLATFORM REGENERATION ---------------- #
+
+# Map platform key -> its dedicated generator coroutine.
+_PLATFORM_GENERATORS = {
+    "linkedin":  generate_linkedin,
+    "twitter":   generate_twitter,
+    "instagram": generate_instagram,
+    "reddit":    generate_reddit,
+    "medium":    generate_medium,
+    "meta":      generate_meta,
+    "quora":     generate_quora,
+    "threads":   generate_threads,
+}
+
+
+async def regenerate_platform(platform, source_content, settings=None, platform_prompts=None, model_id: str = None):
+    """
+    Regenerate content for a SINGLE platform. Reuses the same per-platform
+    generator used by the full pipeline (or mock in dev mode). Returns the
+    new content string, or None on error / unknown platform.
+    """
+    global MODEL
+
+    if settings is None:
+        settings = {}
+    if platform_prompts is None:
+        platform_prompts = {}
+
+    generator = _PLATFORM_GENERATORS.get(platform)
+    if generator is None:
+        return None
+
+    # ── DEVELOPMENT MODE: return a fresh mock for just this platform ──────────
+    from app.config import get_use_mock
+    if get_use_mock():
+        return get_mock_content(source_content, settings, platform_prompts).get(platform)
+
+    # ── PRODUCTION MODE: call the real single-platform generator ─────────────
+    original_model = MODEL
+    active_model = model_id or original_model
+    _set_model(active_model)
+    MODEL = active_model
+    try:
+        return await generator(source_content, settings, platform_prompts)
+    except Exception as e:
+        print("========== REGENERATE ERROR ==========")
+        print(platform, type(e), str(e))
+        print("======================================")
+        return None
     finally:
         MODEL = original_model

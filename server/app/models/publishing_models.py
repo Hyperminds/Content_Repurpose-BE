@@ -19,6 +19,10 @@ PostHistory document:
     "failure_reason": str | None,
     "platform_post_id": str | None,
     "analytics_snapshot": dict | None,
+    "retry_count": int (default 0),
+    "max_retries": int (default 5),
+    "next_retry_at": datetime | None,
+    "last_retry_reason": str | None,
     "created_at": datetime,
     "updated_at": datetime
 }
@@ -61,6 +65,7 @@ VALID_POST_STATUSES = [
     "posting",
     "posted",
     "failed",
+    "retrying",
     "ready_to_publish",
     "awaiting_manual_publish",
     "manually_published",
@@ -76,6 +81,7 @@ PLATFORM_MODES = {
     "twitter": "manual_assisted",
     "quora": "manual_assisted",
     "meta": "manual_assisted",
+    "threads": "manual_assisted",
 }
 
 # Platform ID prefixes for unique post IDs
@@ -87,4 +93,17 @@ PLATFORM_PREFIXES = {
     "medium": "MED",
     "meta": "META",
     "quora": "QUORA",
+    "threads": "THRD",
 }
+
+# ── Retry configuration ───────────────────────────────────────────────────────
+# Exponential backoff intervals (seconds) indexed by retry_count.
+# After max_retries, the post stays failed permanently.
+DEFAULT_MAX_RETRIES = 5
+RETRY_BACKOFF_SECONDS = [
+    30,      # retry 1: 30 seconds
+    120,     # retry 2: 2 minutes
+    480,     # retry 3: 8 minutes
+    1800,    # retry 4: 30 minutes
+    7200,    # retry 5: 2 hours
+]

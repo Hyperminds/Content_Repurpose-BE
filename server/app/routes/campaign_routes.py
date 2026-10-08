@@ -9,6 +9,7 @@ from app.models.campaign_model import CampaignCreate, CampaignUpdate
 from app.services.campaign_service import (
     create_campaign, get_campaigns, get_campaign, update_campaign,
     delete_campaign, update_campaign_status, get_campaign_stats, get_campaign_activity,
+    compute_campaign_health,
 )
 from app.services.campaign_ai_service import (
     generate_campaign_strategy, generate_campaign_days,
@@ -46,10 +47,12 @@ async def campaign_stats(user: dict = Depends(get_current_user)):
 
 @router.get("/{campaign_id}")
 async def get_one(campaign_id: str, user: dict = Depends(get_current_user)):
-    """Get a single campaign."""
+    """Get a single campaign (enriched with posting health: posted/missed counts
+    and an is_failed flag when the period elapsed with zero posts)."""
     result = await get_campaign(campaign_id, user["user_id"])
     if not result:
         raise HTTPException(status_code=404, detail="Campaign not found")
+    result = await compute_campaign_health(campaign_id, result)
     return result
 
 
@@ -70,7 +73,7 @@ async def set_status(
 ):
     """Update campaign status only."""
     status = data.get("status", "")
-    valid = ["draft", "active", "paused", "completed", "cancelled"]
+    valid = ["draft", "active", "paused", "completed", "cancelled", "failed"]
     if status not in valid:
         raise HTTPException(status_code=400, detail=f"Invalid status. Use: {', '.join(valid)}")
     result = await update_campaign_status(campaign_id, user["user_id"], status)
@@ -187,11 +190,18 @@ async def generate_content_for_day(
     if not day_doc:
         raise HTTPException(status_code=404, detail="Day not found")
 
-    from app.services.campaign_content_service import serialize_day
+    from app.services.campaign_content_service import serialize_day, generate_day_image
     day = serialize_day(day_doc)
 
     try:
         content_data = await generate_day_content(day, campaign)
+        # Preload a platform-specific AI image for this day (mock-toggle aware;
+        # never raises — falls back to "" so content generation can't break).
+        image_url = await generate_day_image(
+            content_data.get("content", ""), day.get("platform", "")
+        )
+        if image_url:
+            content_data["image_url"] = image_url
         saved = await save_day_content(day_id, campaign_id, user["user_id"], content_data)
         return saved
     except Exception as e:

@@ -170,9 +170,34 @@ The takeaway: invest as much in understanding users as you do in understanding c
 ]
 
 
+THREADS_POSTS = [
+    """ok this is the mindset shift that changed how i build.
+
+stopped optimizing for "impressive" and started optimizing for "useful." night and day difference in how people respond.
+
+what's one thing you stopped doing that made everything easier?""",
+    """hot take: most content isn't bad, it's just forgettable.
+
+the stuff that sticks says one true thing clearly instead of five clever things vaguely.
+
+anyone else feel like we're drowning in "clever"?""",
+    """spent years thinking i needed more tools.
+
+turns out i needed fewer, used better. cut my stack in half and shipped twice as much.
+
+curious — what's the one tool you'd never give up?""",
+]
+
+
 def get_mock_content(source_content: str, settings: dict = None, platform_prompts: dict = None) -> dict:
-    """Return realistic mock content for all platforms."""
-    return {
+    """Return realistic mock content for all platforms.
+
+    In mock mode we can't actually call an AI, so when the user supplies a
+    regenerate instruction we surface it in the output. This makes the
+    custom-prompt regenerate feature visibly testable without AI credits.
+    """
+    settings = settings or {}
+    content = {
         "linkedin":  random.choice(LINKEDIN_POSTS),
         "twitter":   random.choice(TWITTER_POSTS),
         "instagram": random.choice(INSTAGRAM_CAPTIONS),
@@ -180,4 +205,12 @@ def get_mock_content(source_content: str, settings: dict = None, platform_prompt
         "medium":    random.choice(MEDIUM_POSTS),
         "meta":      f"Sharing some thoughts on the future of AI and content creation. What do you think? Drop your perspective in the comments. #AI #ContentCreation #Tech",
         "quora":     random.choice(QUORA_ANSWERS),
+        "threads":   random.choice(THREADS_POSTS),
     }
+
+    instruction = (settings.get("regenerateInstruction") or "").strip()
+    if instruction:
+        note = f"[Regenerated per your request: \"{instruction}\"]\n\n"
+        content = {platform: note + text for platform, text in content.items()}
+
+    return content

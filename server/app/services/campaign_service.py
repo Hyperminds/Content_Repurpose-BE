@@ -37,6 +37,9 @@ def serialize_campaign(doc: dict) -> dict:
         except Exception:
             pass
 
+    # Period fully elapsed? (both dates parsed and no days remaining left)
+    period_elapsed = bool(start and end and days_remaining == 0 and progress_percent == 100)
+
     return {
         "id": str(doc["_id"]),
         "user_id": doc.get("user_id", ""),
@@ -56,7 +59,46 @@ def serialize_campaign(doc: dict) -> dict:
         "updated_at": doc.get("updated_at").isoformat() if doc.get("updated_at") else None,
         "days_remaining": days_remaining,
         "progress_percent": progress_percent,
+        "period_elapsed": period_elapsed,
     }
+
+
+async def compute_campaign_health(campaign_id: str, serialized: dict) -> dict:
+    """
+    Enrich a serialized campaign with day-level posting health:
+      - posted_count   : days actually marked 'done'
+      - missed_count   : days whose date passed without being posted/skipped
+      - total_days     : number of planned days
+      - is_failed      : the campaign period has fully elapsed AND zero posts
+                         were ever published (the user missed the whole campaign)
+
+    Derived from existing day data (no publish signal exists to track from).
+    Pure read; never mutates. Returns the same dict with the fields added.
+    """
+    from app.services.campaign_content_service import _derive_missed
+
+    cursor = campaign_days_collection.find({"campaign_id": campaign_id})
+    days = await cursor.to_list(length=1000)
+    total = len(days)
+    posted = sum(1 for d in days if d.get("status") == "done")
+    missed = sum(1 for d in days if _derive_missed(d.get("date"), d.get("status", "planned")))
+
+    status = serialized.get("campaign_status", "draft")
+    period_elapsed = serialized.get("period_elapsed", False)
+    # Failed = the run is over (period elapsed, or explicitly marked failed) and
+    # nothing was ever posted. Draft/cancelled campaigns are never "failed".
+    is_failed = (
+        status not in ("draft", "cancelled")
+        and total > 0
+        and posted == 0
+        and (period_elapsed or status == "failed")
+    )
+
+    serialized["posted_count"] = posted
+    serialized["missed_count"] = missed
+    serialized["total_days"] = total
+    serialized["is_failed"] = is_failed
+    return serialized
 
 
 # ── CRUD Operations ───────────────────────────────────────────────────────────
@@ -173,6 +215,7 @@ async def get_campaign_stats(user_id: str) -> dict:
         "paused": stats.get("paused", 0),
         "completed": stats.get("completed", 0),
         "cancelled": stats.get("cancelled", 0),
+        "failed": stats.get("failed", 0),
     }
 
 

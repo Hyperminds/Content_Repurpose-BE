@@ -467,6 +467,20 @@ async def init_platform_catalog():
             "posting_limits": {"daily": 10},
             "platform_rules": "Answer format. No hashtags. Authority-driven. SEO-friendly.",
         },
+        {
+            "platform_name": "threads",
+            "display_name": "Threads",
+            "icon": "threads",
+            "enabled": True,
+            "posting_mode": "manual_assisted",
+            "api_status": "not_configured",
+            "oauth_supported": True,
+            "supported_media_types": ["text", "image", "video"],
+            "character_limit": 500,
+            "hashtag_limit": 0,
+            "posting_limits": {"daily": 10},
+            "platform_rules": "Short conversational posts. No hashtags. Engagement-first.",
+        },
     ]
 
     await platform_catalog_collection.insert_many(platforms)

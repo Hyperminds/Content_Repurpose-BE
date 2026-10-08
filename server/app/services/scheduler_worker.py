@@ -11,6 +11,8 @@ Topology (in-process, event-driven):
     PollingScheduler ──fire(post_id)──▶ QueuedTrigger ──▶ PostPublishingService
         (WHEN)                            (DELIVERY)            (HOW)
 
+    RetryWorker ───fire(post_id)──────▶ (same trigger)
+
 To move to AWS later, swap QueuedTrigger → AWSSQSTrigger / AWSEventBridgeTrigger
 and/or PollingScheduler → AWSEventDrivenScheduler. Nothing else changes.
 """
@@ -18,11 +20,13 @@ and/or PollingScheduler → AWSEventDrivenScheduler. Nothing else changes.
 from app.services.publishing.service import PostPublishingService
 from app.services.publishing.triggers import QueuedTrigger
 from app.services.publishing.schedulers import PollingScheduler
+from app.services.publishing_retry import RetryWorker
 
 # ── Composition ───────────────────────────────────────────────────────────────
 _service = PostPublishingService()
 _trigger = QueuedTrigger(_service)
 _scheduler = PollingScheduler(_trigger, interval_seconds=30)
+_retry_worker = RetryWorker(_trigger, interval_seconds=60)
 
 # Preserved for the health check: `from app.services.scheduler_worker import _running`
 _running = False
@@ -38,18 +42,20 @@ def get_publishing_service() -> PostPublishingService:
 
 
 def start_scheduler():
-    """Start the trigger consumer and the polling scheduler."""
+    """Start the trigger consumer, retry worker, and the polling scheduler."""
     global _running
     if _running:
         return
-    _trigger.start()      # start the queue consumer (delivery side)
-    _scheduler.start()    # start the polling loop (scheduling side)
+    _trigger.start()        # start the queue consumer (delivery side)
+    _scheduler.start()      # start the polling loop (scheduling side)
+    _retry_worker.start()   # start the retry worker
     _running = True
 
 
 def stop_scheduler():
-    """Stop the polling scheduler and the trigger consumer."""
+    """Stop the polling scheduler, retry worker, and the trigger consumer."""
     global _running
     _scheduler.stop()
+    _retry_worker.stop()
     _trigger.stop()
     _running = False

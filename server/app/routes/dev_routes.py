@@ -7,24 +7,57 @@ They allow the developer toolbar to control sandbox behavior.
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, Any
-from app.config import USE_MOCK, APP_ENV
+from app.config import USE_MOCK, APP_ENV, IS_PRODUCTION, get_use_mock, set_use_mock
 from app.utils.jwt_handler import get_current_user
 
 router = APIRouter(prefix="/dev", tags=["Developer Sandbox"])
 
 
 def _require_dev_mode():
-    """Raise 403 if not in development mode."""
-    if not USE_MOCK:
+    """Raise 403 if not in development mode (mock mode active)."""
+    if not get_use_mock():
         raise HTTPException(
             status_code=403,
             detail=f"Developer endpoints are disabled in {APP_ENV} mode."
         )
 
 
+def _require_dev_env():
+    """Raise 403 only in production. Allows toggling mock on/off in dev/staging."""
+    if IS_PRODUCTION:
+        raise HTTPException(
+            status_code=403,
+            detail="Developer mode toggle is disabled in production."
+        )
+
+
 class SimulationFlagRequest(BaseModel):
     flag: str
     value: Any
+
+
+class DevModeRequest(BaseModel):
+    mock: bool
+
+
+# ── Dev mode (mock data) toggle ───────────────────────────────────────────────
+
+@router.get("/mode")
+async def get_dev_mode(current_user: dict = Depends(get_current_user)):
+    """Return whether content generation is currently using mock data."""
+    _require_dev_env()
+    return {"mock": get_use_mock()}
+
+
+@router.post("/mode")
+async def update_dev_mode(
+    request: DevModeRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Toggle mock data (dev mode) on/off at runtime. Disabled in production."""
+    _require_dev_env()
+    new_value = set_use_mock(request.mock)
+    return {"mock": new_value}
 
 
 # ── Status ────────────────────────────────────────────────────────────────────
