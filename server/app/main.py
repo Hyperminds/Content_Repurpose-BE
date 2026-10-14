@@ -23,6 +23,7 @@ from app.routes.social_presence_routes import router as social_presence_router
 from app.routes.trend_routes import router as trend_router
 from app.routes.dev_routes import router as dev_router
 from app.routes.metering_routes import router as metering_router
+from app.routes.push_routes import router as push_router
 from app.social_publishing.api.routes import router as social_publishing_router
 from app.social_publishing.api.connection_routes import router as social_publishing_oauth_router
 from app.social_publishing.api.reddit_routes import router as social_publishing_reddit_router
@@ -276,6 +277,7 @@ app.include_router(social_presence_router)
 app.include_router(trend_router)
 app.include_router(dev_router)
 app.include_router(metering_router)
+app.include_router(push_router)
 app.include_router(social_publishing_router)
 app.include_router(social_publishing_oauth_router)
 app.include_router(social_publishing_reddit_router)

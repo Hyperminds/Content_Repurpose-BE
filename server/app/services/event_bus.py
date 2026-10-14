@@ -59,6 +59,10 @@ async def emit_post_scheduled(user_id: str, post: dict):
     await emit(user_id, "post_scheduled", post)
 
 
+async def emit_post_due(user_id: str, post: dict):
+    await emit(user_id, "post_due", post)
+
+
 async def emit_post_published(user_id: str, post: dict):
     await emit(user_id, "post_published", post)
 

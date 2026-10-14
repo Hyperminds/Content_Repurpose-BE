@@ -138,9 +138,50 @@ class JobScheduler:
                 )
                 if self._metrics:
                     self._metrics.record_job_created()
+                await self._notify_due(post)
             else:
                 # Idempotency key collision — job already exists for this post
                 log.debug("Job already exists for post", post_id=post.id)
+
+    # ── Due notification ──────────────────────────────────────────────────────
+
+    async def _notify_due(self, post) -> None:
+        """Best-effort: alert the post owner that a scheduled post is now due so
+        they can open the app and publish it — via browser push, an in-app
+        notification, and an SSE event. Never raises: a notification failure must
+        not block scheduling or publishing.
+
+        `tenant_id` resolves to the JWT user_id (org_id_from_user fallback), so it
+        matches the key used by the notification + push subscription stores.
+        """
+        try:
+            from app.services.event_bus import emit_post_due
+            from app.services.notification_service import create_notification
+            from app.services.push_service import send_web_push
+
+            user_id = post.tenant_id
+            platform = post.platform.value
+            title = f"Time to post on {platform.title()}"
+            message = (
+                f"Your scheduled {platform.title()} post is due. "
+                f"Open TrendZZo to review and publish it."
+            )
+
+            await emit_post_due(user_id, {
+                "platform": platform,
+                "post_id": post.id,
+                "content_preview": (post.content or "")[:80],
+            })
+            await create_notification(
+                user_id, title, message, platform=platform, post_id=post.id,
+            )
+            await send_web_push(user_id, title, message, {
+                "post_id": post.id,
+                "platform": platform,
+                "url": "/history",
+            })
+        except Exception as e:
+            log.warning("post-due notification failed", post_id=getattr(post, "id", "?"), error=str(e))
 
     # ── Recovery loop ─────────────────────────────────────────────────────────
 
