@@ -52,6 +52,7 @@ class PostPublishingService(IPublishingService):
         # Manual-assisted platforms are never auto-posted — they wait for the user.
         if PLATFORM_MODES.get(platform, "manual_assisted") == "manual_assisted":
             await self._set_status(oid, "awaiting_manual_publish")
+            await self._on_due(user_id, platform, post, content)
             return PublishResult(post_id=str(oid), outcome=PublishOutcome.AWAITING_MANUAL,
                                  platform=platform)
 
@@ -116,6 +117,36 @@ class PostPublishingService(IPublishingService):
         )
 
     # ── side effects (events / notifications / email) ────────────────────────
+
+    async def _on_due(self, user_id, platform, post, content):
+        """A scheduled manual-assisted post is now due — alert the user so they
+        can open the app and post it. Emits an SSE event, stores an in-app
+        notification, and sends a Web Push to the user's registered devices."""
+        try:
+            from app.services.event_bus import emit_post_due
+            from app.services.notification_service import create_notification
+            from app.services.push_service import send_web_push
+            unique_id = post.get("unique_post_id", "")
+            post_id = str(post.get("_id"))
+            title = f"Time to post on {platform.title()}"
+            message = f"Your scheduled {platform.title()} post is ready. Open TrendZZo to publish it."
+
+            await emit_post_due(user_id, {
+                "platform": platform,
+                "unique_post_id": unique_id,
+                "post_id": post_id,
+                "content_preview": content[:80],
+            })
+            await create_notification(
+                user_id, title, message, platform=platform, post_id=post_id,
+            )
+            await send_web_push(user_id, title, message, {
+                "post_id": post_id,
+                "platform": platform,
+                "url": "/history",
+            })
+        except Exception as e:
+            print(f"[publishing] post-due side effects failed: {e}")
 
     async def _on_published(self, user_id, platform, post, content):
         try:
