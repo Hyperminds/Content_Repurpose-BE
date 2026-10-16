@@ -9,6 +9,7 @@ Endpoints:
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from typing import Optional
+import logging
 
 from app.config import FRONTEND_URL
 from app.utils.jwt_handler import get_current_user
@@ -26,13 +27,14 @@ from app.social_publishing.auth.linkedin_provider import LinkedInAuthProvider
 from app.social_publishing.credentials.vault import CredentialVault
 from app.social_publishing.repositories.social_accounts_repository import SocialAccountsRepository
 
+logger = logging.getLogger("trendzzo")
+
 router = APIRouter(prefix="/social-publishing", tags=["social-publishing-oauth"])
 
 # ── Singleton dependencies ────────────────────────────────────────────────────
-
+# These are cheap and never raise, so they are constructed at import time.
 _accounts_repo = SocialAccountsRepository()
 _state_store = OAuthStateStore()
-_vault = CredentialVault()
 _auth_registry = AuthProviderRegistry()
 
 # Register available providers
@@ -47,15 +49,38 @@ _auth_registry.register(InstagramAuthProvider())
 from app.social_publishing.integrations.twitter import TwitterAuthProvider
 _auth_registry.register(TwitterAuthProvider())
 
-_connection_service = AccountConnectionService(
-    accounts_repo=_accounts_repo,
-    auth_registry=_auth_registry,
-    state_store=_state_store,
-    vault=_vault,
-)
+# The credential vault (and the service that depends on it) are constructed
+# LAZILY on first use. CredentialVault() raises in production when
+# SP_CREDENTIAL_ENCRYPTION_KEY is missing; building it at import time would take
+# the entire application down (uvicorn can't import app.main). Deferring it means
+# a misconfiguration only degrades the social-publishing OAuth routes — which
+# return a clean 503 — while the rest of the API stays up.
+_connection_service: Optional[AccountConnectionService] = None
 
 
 def _get_connection_service() -> AccountConnectionService:
+    global _connection_service
+    if _connection_service is None:
+        try:
+            vault = CredentialVault()
+        except Exception as exc:  # CredentialVaultError and anything unexpected
+            logger.error(
+                "social_publishing_vault_unavailable",
+                extra={"event": "social_publishing_vault_unavailable", "reason": str(exc)},
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Social publishing is temporarily unavailable: the credential "
+                    "vault is not configured. Set SP_CREDENTIAL_ENCRYPTION_KEY."
+                ),
+            )
+        _connection_service = AccountConnectionService(
+            accounts_repo=_accounts_repo,
+            auth_registry=_auth_registry,
+            state_store=_state_store,
+            vault=vault,
+        )
     return _connection_service
 
 

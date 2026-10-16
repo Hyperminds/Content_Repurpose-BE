@@ -81,6 +81,9 @@ jobs:
               "echo '=== Install Requirements ==='",
               "$APP_DIR/venv/bin/pip install -r $APP_SUBDIR/requirements.txt",
 
+              "echo '=== Install Playwright + Chromium (only if Hermes enabled) ==='",
+              "if [ -f $APP_SUBDIR/.env ] && grep -Eq '^ENABLE_HERMES_PROVIDER=true' $APP_SUBDIR/.env; then echo 'Hermes enabled — installing Playwright + Chromium'; ($APP_DIR/venv/bin/pip install 'playwright>=1.44.0' && ($APP_DIR/venv/bin/python -m playwright install --with-deps chromium || ($APP_DIR/venv/bin/python -m playwright install chromium && echo 'WARN: Chromium installed but OS deps step failed. Install system libs manually (e.g. nss, nspr, atk, cups-libs, libdrm, libXcomposite, libXrandr, mesa-libgbm, alsa-lib) or browser launch may fail with TargetClosedError.'))) || echo 'ERROR: Playwright/Chromium install failed; Hermes browser publishing will be unavailable, but the core API deploy continues.'; else echo 'Hermes disabled — skipping Playwright install'; fi",
+
               "echo '=== Stop Existing PM2 Process ==='",
               "pm2 delete content-repurpose || true",
 
