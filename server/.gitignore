@@ -2,6 +2,10 @@ venv/
 __pycache__/
 .env
 app/.env
+# Filled production env with REAL secrets — share out-of-band, NEVER commit.
+.env.production
+app/.env.production
+app/.env.*.local
 .mockstate
 app/.mockstate
 node_modules/

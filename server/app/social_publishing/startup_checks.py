@@ -20,8 +20,18 @@ def validate_environment() -> list[str]:
     """
     issues: list[str] = []
 
-    # Critical for production
-    _check_var("SP_CREDENTIAL_ENCRYPTION_KEY", required_in_prod=True, issues=issues)
+    # Credential vault key. Required ONLY by the native-OAuth publishing feature
+    # (storing/refreshing platform access tokens). It is NOT needed by manual
+    # (share-intent) posting or web-push notifications. So a missing key is a
+    # loud WARNING, not a fatal boot error — the app stays up and those features
+    # keep working, while credential-dependent features fail at first use (the
+    # vault raises lazily) with a clear message. Set the key to enable them.
+    if not os.getenv("SP_CREDENTIAL_ENCRYPTION_KEY"):
+        issues.append(
+            "WARNING: SP_CREDENTIAL_ENCRYPTION_KEY not set — native OAuth "
+            "publishing (token storage/refresh) is DISABLED until it is set. "
+            "Manual posting and web-push notifications are unaffected."
+        )
 
     # OAuth credentials (at least one platform should be configured)
     platforms_configured = 0

@@ -203,8 +203,18 @@ async def lifespan(app: FastAPI):
     sp_auth_registry.register(SPFacebookAuth())
     sp_auth_registry.register(SPInstagramAuth())
     sp_auth_registry.register(SPTwitterAuth())
-    sp_token_worker = TokenRefreshWorker(sp_accounts_repo, sp_auth_registry, SPVault())
-    sp_token_worker.start()
+    # The token-refresh worker only serves native-OAuth accounts and needs the
+    # credential vault. If SP_CREDENTIAL_ENCRYPTION_KEY is not configured, build
+    # it lazily-fails here; skip the worker rather than crash the whole app so
+    # manual posting + web-push notifications still run. (Vault raises in prod
+    # when the key is missing; in dev it derives a key and this always runs.)
+    sp_token_worker = None
+    try:
+        sp_token_worker = TokenRefreshWorker(sp_accounts_repo, sp_auth_registry, SPVault())
+        sp_token_worker.start()
+    except Exception as exc:
+        sp_token_worker = None
+        print(f"⚠ Token refresh worker NOT started (credential vault unavailable): {exc}")
 
     # Store metrics on app state for the stats endpoint
     app.state.sp_metrics = sp_metrics
@@ -216,9 +226,11 @@ async def lifespan(app: FastAPI):
     print(f"✓ Metering worker started")
     print(f"✓ Social Publishing job scheduler started")
     print(f"✓ Social Publishing worker started")
-    print(f"✓ Token refresh worker started")
+    if sp_token_worker is not None:
+        print(f"✓ Token refresh worker started")
     yield
-    sp_token_worker.stop()
+    if sp_token_worker is not None:
+        sp_token_worker.stop()
     sp_worker.stop()
     sp_job_scheduler.stop()
     stop_scheduler()
