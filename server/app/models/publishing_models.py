@@ -72,9 +72,13 @@ VALID_POST_STATUSES = [
     "cancelled",
 ]
 
-# Platform posting modes
+# Platform posting modes.
+# All platforms are manual_assisted: "Post Now" never calls a platform API — it
+# prepares the content so the user posts it by hand (open platform + copy text +
+# download image). This is uniform across every platform and identical in dev and
+# production (no OAuth, no credential vault, no mock-vs-real divergence).
 PLATFORM_MODES = {
-    "linkedin": "auto",
+    "linkedin": "manual_assisted",
     "instagram": "manual_assisted",
     "reddit": "manual_assisted",
     "medium": "manual_assisted",
